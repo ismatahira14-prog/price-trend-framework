@@ -1,0 +1,25 @@
+# Analysis-wide settings. Used by later phases; a few are read during ingestion.
+
+# Canonical analysis frequency for the monthly panel.
+analysis_frequency: M
+
+# CPI index base period, as published in Inflation.xlsx.
+cpi_base_label: "index_2015_16=100"
+
+# Deflation base year for real-vs-nominal price work (cleaning phase).
+deflation_base_year: 2016
+
+# Fiscal year convention for annual (crop) data: FY "2024-25" ends on this month/day.
+fiscal_year_end: "06-30"
+
+# --- placeholders for later phases (not used yet) ---
+forecasting:
+  horizon_months: 12
+  backtest:
+    scheme: rolling-origin
+    min_train_months: 48
+    step_months: 1
+factors:
+  max_lag_months: 12
+events:
+  min_segment_months: 6

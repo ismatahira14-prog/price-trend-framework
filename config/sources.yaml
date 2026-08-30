@@ -1,0 +1,47 @@
+# Registry of raw data sources.
+#
+# Each entry:
+#   path:      path relative to <data_dir>/  (data_dir defaults to <repo>/data)
+#   sheet:     worksheet name (for Excel)
+#   loader:    name of a function registered with @register_loader in pricelab.ingestion
+#   kind:      "fact"       -> rows are appended to data/processed/master_long
+#              "dimension"  -> written to data/interim/<key>.parquet, not in master_long
+#   domain:    free-text grouping (macro, agriculture, energy, trade, weather, ...)
+#   frequency: native frequency of the series  (M, W, A)  -- informational
+#
+# To add a new dataset later: add an entry here. If its shape is new, also add
+# one loader function; otherwise reuse an existing loader.
+
+inflation_cpi_groups:
+  path: raw/Inflation.xlsx
+  sheet: Sheet1
+  loader: cpi_groups
+  kind: fact
+  domain: macro
+  frequency: M
+
+crop_production:
+  path: raw/crops intern.xlsx
+  sheet: CropData
+  loader: crop_production
+  kind: fact
+  domain: agriculture
+  frequency: A
+
+crop_dim:
+  path: raw/crops intern.xlsx
+  sheet: Crops
+  loader: reference_table
+  kind: dimension
+
+region_hierarchy:
+  path: raw/crops intern.xlsx
+  sheet: ds
+  loader: reference_table
+  kind: dimension
+
+cpi_item_dictionary:
+  path: raw/CPI ITEMs.xlsx
+  sheet: ITEMS
+  loader: reference_table
+  kind: dimension

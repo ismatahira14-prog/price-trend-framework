@@ -1,0 +1,86 @@
+# Canonical commodity / price-group vocabulary.
+#
+# canonical:  the name used everywhere downstream (master_long.commodity)
+# aliases:    raw strings (from any source) that map to this canonical name
+# category:   cpi_group | crop | fuel | fertilizer | ... (free-text)
+# note:       optional human note
+#
+# canon_commodity() lowercases + strips + collapses whitespace before matching,
+# so aliases here can be written in any case. Unknown values pass through
+# unchanged and are reported as "unmapped" so you know what to add.
+
+commodities:
+  # ---------------- CPI COICOP groups (from Inflation.xlsx) ----------------
+  - canonical: General
+    category: cpi_group
+    aliases: ["general", "headline", "all items"]
+  - canonical: Food & Non-Alcoholic Beverages
+    category: cpi_group
+    aliases: ["food and non-alcoholic beverages", "food & non-alcoholic beverages", "food"]
+  - canonical: Alcoholic Beverages & Tobacco
+    category: cpi_group
+    aliases: ["alcoholic beverages, tobacco", "alcoholic beverages & tobacco", "alcoholic bev/tobacco"]
+  - canonical: Clothing & Footwear
+    category: cpi_group
+    aliases: ["clothing and footwear", "clothing & footwear"]
+  - canonical: Housing, Water, Electricity, Gas & Fuels
+    category: cpi_group
+    aliases:
+      - "housing, water, elec., gas and other fuels"
+      - "housing water electricity gas & fuels"
+      - "housing"
+  - canonical: Furnishing & Household Equipment
+    category: cpi_group
+    aliases:
+      - "furnishing and household equipment maintenance"
+      - "furnishing & household equipment"
+      - "furnishing & household"
+  - canonical: Health
+    category: cpi_group
+    aliases: ["health"]
+  - canonical: Transport
+    category: cpi_group
+    aliases: ["transport"]
+  - canonical: Communication
+    category: cpi_group
+    aliases: ["communication"]
+  - canonical: Recreation & Culture
+    category: cpi_group
+    aliases: ["recreation and culture", "recreation & culture"]
+  - canonical: Education
+    category: cpi_group
+    aliases: ["education"]
+  - canonical: Restaurants & Hotels
+    category: cpi_group
+    aliases: ["restaurants and hotels", "restaurants & hotels"]
+  - canonical: Miscellaneous Goods & Services
+    category: cpi_group
+    aliases: ["misc. goods and services", "miscellaneous goods & services", "misc goods & services"]
+
+  # ---------------- Crops (from crops intern.xlsx / Crops sheet) ----------------
+  # Add explicit canonical entries only where the raw name needs cleaning.
+  # Un-listed crop names pass through as-is (title-cased by the loader).
+  - canonical: Wheat
+    category: crop
+    aliases: ["wheat"]
+  - canonical: Rice
+    category: crop
+    aliases: ["rice"]
+  - canonical: Sugarcane
+    category: crop
+    aliases: ["sugarcane", "sugar cane"]
+  - canonical: Maize
+    category: crop
+    aliases: ["maize", "corn"]
+  - canonical: Cotton
+    category: crop
+    aliases: ["cotton"]
+  - canonical: Onion
+    category: crop
+    aliases: ["onion"]
+  - canonical: Potato
+    category: crop
+    aliases: ["potato"]
+  - canonical: Tomato
+    category: crop
+    aliases: ["tomato"]

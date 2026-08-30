@@ -1,0 +1,48 @@
+# Canonical region vocabulary + hierarchy.
+#
+# canon_region() lowercases + strips + removes a trailing " district" / " division"
+# before matching aliases. Unknown values pass through (title-cased) and are
+# reported as "unmapped".
+#
+# levels: national | province | division | district
+#
+# The district -> division -> province rollup is loaded at runtime from the
+# `region_hierarchy` dimension table (crops intern.xlsx / ds sheet); this file
+# only needs entries for names that require cleaning or explicit level tagging.
+
+regions:
+  - canonical: Pakistan
+    level: national
+    aliases: ["pakistan", "national", "pak", "all pakistan"]
+
+  - canonical: Punjab
+    level: province
+    aliases: ["punjab"]
+  - canonical: Sindh
+    level: province
+    aliases: ["sindh"]
+  - canonical: Khyber Pakhtunkhwa
+    level: province
+    aliases: ["khyber pakhtunkhwa", "kpk", "kp", "nwfp"]
+  - canonical: Balochistan
+    level: province
+    aliases: ["balochistan", "baluchistan"]
+  - canonical: Gilgit-Baltistan
+    level: province
+    aliases: ["gilgit-baltistan", "gilgit baltistan", "gb"]
+  - canonical: Azad Jammu & Kashmir
+    level: province
+    aliases: ["azad jammu & kashmir", "ajk", "azad kashmir"]
+  - canonical: Islamabad
+    level: province
+    aliases: ["islamabad", "ict", "islamabad capital territory"]
+
+# District-name overrides (only where the raw spelling differs from what we want)
+district_aliases:
+  # raw (lowercased, no "district" suffix) : canonical
+  "d. i. khan": "Dera Ismail Khan"
+  "dera ismail khan": "Dera Ismail Khan"
+  "d.g. khan": "Dera Ghazi Khan"
+  "dera ghazi khan": "Dera Ghazi Khan"
+  "chirtal": "Chitral"          # CropData misspelling of Chitral
+  "kohistan": "Kohistan"        # CropData uses a bare "Kohistan" not in the ds hierarchy
