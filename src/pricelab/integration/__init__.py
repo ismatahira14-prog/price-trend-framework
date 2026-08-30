@@ -1,6 +1,7 @@
 """Integration layer: harmonize keys, concatenate loaders, write master_long."""
 
 from pricelab.integration.build_master import build_master
+from pricelab.integration.excel_export import write_excel
 from pricelab.integration.harmonize import (
     canon_commodity,
     canon_region,
@@ -12,6 +13,7 @@ from pricelab.integration.harmonize import (
 
 __all__ = [
     "build_master",
+    "write_excel",
     "canon_commodity",
     "canon_region",
     "canon_unit",

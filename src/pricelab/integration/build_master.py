@@ -9,6 +9,7 @@ import pandas as pd
 
 from pricelab.config import interim_dir, load_config, processed_dir
 from pricelab.ingestion.base import run_source
+from pricelab.integration.excel_export import write_excel
 from pricelab.integration.harmonize import reset_unmapped, unmapped
 from pricelab.schema import KEY_COLUMNS, coerce_tidy, empty_tidy, validate_tidy
 
@@ -71,9 +72,12 @@ def build_master(only: list[str] | None = None, *, write: bool = True) -> Ingest
     if write and not result.master.empty:
         pq = processed_dir() / "master_long.parquet"
         csv = processed_dir() / "master_long.csv"
+        xlsx = processed_dir() / "master_long.xlsx"
         result.master.to_parquet(pq, index=False)
         result.master.to_csv(csv, index=False)
+        write_excel(result.master, xlsx)
         result.paths["master_long_parquet"] = str(pq)
         result.paths["master_long_csv"] = str(csv)
+        result.paths["master_long_xlsx"] = str(xlsx)
 
     return result
