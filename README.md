@@ -19,6 +19,7 @@ next, and **WHAT** decision-makers can do about it.
 | Collection + Integration + light Cleaning | `pricelab.ingestion`, `pricelab.integration` | **done** (this repo) |
 | Storage (SQL Server + DuckDB snapshot) | `pricelab.integration.sql_export`, `.duckdb_export` | **done** |
 | Visualization (web dashboard) | `dashboard/` (Streamlit) | **done**, basic pages |
+| Spike & factor analysis (Home page) | `pricelab.dashboard.factors` | **done**, events real / factor breakdown is placeholder data (see below) |
 | EDA, Events, Spatial, Factors, Forecasting, Uncertainty, Decision | — | planned (see `.claude/plans/`) |
 
 Current output: a single tidy-long fact table (`data/processed/master_long.{parquet,csv,xlsx}`),
@@ -106,10 +107,39 @@ pip install -e ".[dashboard]"     # streamlit + plotly (once)
 streamlit run dashboard/app.py    # or: .\run.cmd dashboard
 ```
 
-Opens `http://localhost:8501` with 4 pages: **Home** (KPIs + General CPI), **CPI Trends**
-(compare price groups over time), **Crop Production** (top districts by area/production/yield),
-**Data Explorer** (filter + download `master_long`). It reads only the DuckDB snapshot - never
-SQL Server - so it works identically once deployed.
+Opens `http://localhost:8501` with 4 pages: **Home** (spike & factor analysis - see below),
+**CPI Trends** (compare price groups over time), **Crop Production** (top districts by
+area/production/yield), **Data Explorer** (filter + download `master_long`). It reads only the
+DuckDB snapshot - never SQL Server - so it works identically once deployed.
+
+### Home page: spike & factor analysis
+
+The Home page is the main analytical view - one continuous flow from "what happened" to "what
+caused it":
+
+1. **KPI row** - latest CPI, MoM %, YoY %, and the highest YoY inflation ever recorded (with date).
+2. **General CPI over time** - three tabs sharing the same timeline:
+   - *Index & moving averages*: CPI plus 3-month / 6-month rolling averages and a stepped
+     calendar-quarter average (kept as one chart since they share the index unit).
+   - *Month-over-month change*: a %, colored by direction (rising = vermillion, falling = blue).
+   - *Year-over-year change*: same idea, one year apart.
+
+   All three carry shaded bands for real, dated macro events (COVID-19, the global supply-chain
+   disruption, the Russia-Ukraine war, the 2022 Pakistan floods, the 2023 currency-devaluation /
+   energy-price shock) - hover a band for a short explanation, see `pricelab.dashboard.factors.EVENTS`
+   for sources/dates.
+3. **Click any point** on any of the three charts (or use the manual period picker) -> the page
+   scrolls to **"What caused the inflation spike?"**, which shows that period's CPI/MoM/YoY and any
+   overlapping event.
+4. **Factor contribution chart + two tables** (month-by-month, year-by-year) show which categories
+   (Food, Transport, Housing, Health, Other) supposedly drove that period's change, with the
+   selected row highlighted.
+
+**Important:** step 4's numbers are placeholder data - see the "🧪 demo data" captions on the page
+and the module docstring in `src/pricelab/dashboard/factors.py`. There is no per-item weighted CPI
+contribution source ingested yet. The events in step 2 are real; the contribution percentages in
+step 4 are not. Swapping in real data means replacing the two `generate_mock_*` functions in that
+one file - the chart/table/interaction code in `dashboard/app.py` doesn't need to change.
 
 ### Deploying it publicly (Streamlit Community Cloud - free)
 
@@ -171,7 +201,8 @@ src/pricelab/
   ingestion/       one loader per source shape
   integration/     harmonize keys, build master_long, write report,
                    sql_export.py (local SQL Server), duckdb_export.py (snapshot)
-  dashboard/       data.py (duckdb reads), theme.py (chart colors)
+  dashboard/       data.py (duckdb reads), theme.py (chart colors),
+                   factors.py (real events + MOCK per-item contributions)
   ingest.py        CLI: python -m pricelab.ingest
 dashboard/         Streamlit app: app.py (home) + pages/ (CPI Trends, Crop
                    Production, Data Explorer) - this is what gets deployed

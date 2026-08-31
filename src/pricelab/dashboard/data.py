@@ -76,6 +76,26 @@ def latest_change_table(wide: pd.DataFrame) -> pd.DataFrame:
     return out.round(2)
 
 
+def cpi_change_table(series: pd.Series) -> pd.DataFrame:
+    """Month-indexed CPI series -> cpi, MoM %, YoY %, and 3 moving averages.
+
+    - ``ma_3m`` / ``ma_6m``: rolling (trailing) monthly averages - smooth
+      trend lines.
+    - ``ma_quarter``: the *calendar*-quarter average (Jan-Mar, Apr-Jun, ...),
+      held flat across each quarter - a deliberately different, "stepped"
+      view from the two rolling averages, not a duplicate of ``ma_3m``.
+    """
+    s = series.dropna().sort_index()
+    out = pd.DataFrame({"cpi": s})
+    out["mom_pct"] = s.pct_change() * 100
+    out["yoy_pct"] = s.pct_change(12) * 100
+    out["ma_3m"] = s.rolling(3).mean()
+    out["ma_6m"] = s.rolling(6).mean()
+    quarterly = s.resample("QE").mean()
+    out["ma_quarter"] = quarterly.reindex(out.index, method="ffill")
+    return out
+
+
 def crop_variants(df: pd.DataFrame) -> list[str]:
     return sorted(df.loc[df["source"] == "crop_production", "commodity"].unique())
 

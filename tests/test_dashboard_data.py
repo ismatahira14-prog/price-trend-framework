@@ -1,7 +1,9 @@
+import pandas as pd
 import pytest
 
 from pricelab.dashboard.data import (
     SnapshotMissing,
+    cpi_change_table,
     cpi_series,
     crop_slice,
     crop_variants,
@@ -37,6 +39,18 @@ def test_latest_change_table_has_expected_columns(snapshot_df):
     table = latest_change_table(wide)
     assert set(table.columns) == {"latest", "mom_pct", "yoy_pct"}
     assert "General" in table.index
+
+
+def test_cpi_change_table_columns_and_quarter_step(snapshot_df):
+    general = cpi_series(snapshot_df, ["General"])["General"]
+    ct = cpi_change_table(general)
+    assert list(ct.columns) == ["cpi", "mom_pct", "yoy_pct", "ma_3m", "ma_6m", "ma_quarter"]
+    assert ct.index.is_monotonic_increasing
+    assert pd.isna(ct["mom_pct"].iloc[0])  # no prior month to compare the first row against
+    # quarter average is constant within any single calendar quarter
+    q = ct["ma_quarter"].dropna()
+    grouped = q.groupby(q.index.to_period("Q")).nunique()
+    assert (grouped <= 1).all()
 
 
 def test_crop_helpers(snapshot_df):
