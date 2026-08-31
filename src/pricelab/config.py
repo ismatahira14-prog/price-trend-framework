@@ -21,7 +21,7 @@ try:  # optional; loads a local .env if present
 except Exception:  # pragma: no cover - dotenv is optional
     pass
 
-_CONFIG_FILES = ("sources", "commodities", "regions", "analysis")
+_CONFIG_FILES = ("sources", "commodities", "regions", "analysis", "database")
 
 
 @functools.lru_cache(maxsize=1)

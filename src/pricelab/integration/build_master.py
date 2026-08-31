@@ -9,6 +9,7 @@ import pandas as pd
 
 from pricelab.config import interim_dir, load_config, processed_dir
 from pricelab.ingestion.base import run_source
+from pricelab.integration.duckdb_export import write_duckdb_snapshot
 from pricelab.integration.excel_export import write_excel
 from pricelab.integration.harmonize import reset_unmapped, unmapped
 from pricelab.schema import KEY_COLUMNS, coerce_tidy, empty_tidy, validate_tidy
@@ -26,13 +27,18 @@ class IngestResult:
     paths: dict[str, str] = field(default_factory=dict)
 
 
-def build_master(only: list[str] | None = None, *, write: bool = True) -> IngestResult:
+def build_master(
+    only: list[str] | None = None, *, write: bool = True, to_sql: bool = True
+) -> IngestResult:
     """Load sources, harmonize, validate, and (optionally) write outputs.
 
     Parameters
     ----------
     only : restrict to these source keys (default: all in sources.yaml).
-    write : persist parquet/csv outputs.
+    write : persist parquet/csv/xlsx/duckdb outputs.
+    to_sql : also mirror to your local SQL Server (best-effort; silently
+        skipped if the ``sqlserver`` extra isn't installed or the server
+        isn't reachable - see ``result.paths.get("sql_server_error")``).
     """
     reset_unmapped()
     sources: dict = load_config()["sources"] or {}
@@ -86,5 +92,28 @@ def build_master(only: list[str] | None = None, *, write: bool = True) -> Ingest
                 "Close it and re-run to refresh the .xlsx (csv/parquet were updated fine).",
                 xlsx,
             )
+
+        # DuckDB snapshot: the file the deployed dashboard reads. Core dependency,
+        # but still guarded so a locked file (open elsewhere) can't crash ingestion.
+        try:
+            duck_path = write_duckdb_snapshot(result.master, result.dimensions)
+            result.paths["duckdb_snapshot"] = str(duck_path)
+        except Exception as e:  # noqa: BLE001 - report, don't crash the pipeline
+            log.warning("Could not write DuckDB snapshot: %s", e)
+
+        # Local SQL Server mirror: optional, best-effort.
+        if to_sql:
+            try:
+                from pricelab.integration.sql_export import write_sql_server
+
+                written = write_sql_server(result.master, result.dimensions)
+                result.paths["sql_server_tables"] = ", ".join(
+                    f"{t} ({n} rows)" for t, n in written.items()
+                )
+            except Exception as e:  # noqa: BLE001 - report, don't crash the pipeline
+                result.paths["sql_server_error"] = str(e)
+                log.warning(
+                    "Skipped SQL Server mirror: %s (pipeline continues fine without it)", e
+                )
 
     return result

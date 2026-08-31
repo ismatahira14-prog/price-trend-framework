@@ -17,10 +17,14 @@ next, and **WHAT** decision-makers can do about it.
 | Stage | Module | State |
 |---|---|---|
 | Collection + Integration + light Cleaning | `pricelab.ingestion`, `pricelab.integration` | **done** (this repo) |
+| Storage (SQL Server + DuckDB snapshot) | `pricelab.integration.sql_export`, `.duckdb_export` | **done** |
+| Visualization (web dashboard) | `dashboard/` (Streamlit) | **done**, basic pages |
 | EDA, Events, Spatial, Factors, Forecasting, Uncertainty, Decision | — | planned (see `.claude/plans/`) |
 
-Current output: a single tidy-long fact table `data/processed/master_long.parquet` plus cleaned
-reference tables in `data/interim/` and `data/processed/ingestion_report.md`.
+Current output: a single tidy-long fact table (`data/processed/master_long.{parquet,csv,xlsx}`),
+cleaned reference tables in `data/interim/`, `data/processed/ingestion_report.md`, a mirror in
+your local SQL Server, and a DuckDB snapshot (`data/processed/pricelab.duckdb`) that powers the
+dashboard.
 
 ## Setup - local (VS Code)
 
@@ -38,6 +42,14 @@ python -m ipykernel install --user --name pricelab --display-name "Python (price
 
 In VS Code: **Python: Select Interpreter** -> `.venv`. Install the recommended extensions
 (`.vscode/extensions.json`).
+
+Optional local extras:
+```powershell
+pip install -e ".[sqlserver]"   # mirror ingestion output into your local SQL Server
+pip install -e ".[dashboard]"   # run the Streamlit dashboard (streamlit, plotly)
+```
+`sqlserver` needs "ODBC Driver 17 (or newer) for SQL Server" installed and a reachable SQL
+Server instance - configure it in `config/database.yaml`.
 
 Fallbacks if `winget` is blocked: install Python from the Microsoft Store (`python3`) or
 <https://www.python.org/downloads/> (tick *Add to PATH*).
@@ -71,6 +83,43 @@ from pricelab.ingest import run
 result = run(all=True)          # -> IngestResult
 result.master                   # tidy-long DataFrame
 ```
+
+## Where the data actually lives
+
+There are **two databases**, on purpose - see `config/database.yaml`:
+
+| | Local SQL Server | DuckDB snapshot |
+|---|---|---|
+| File/location | `PriceTrendFramework` DB in your SQL Server instance | `data/processed/pricelab.duckdb` (committed to git) |
+| Written by | `pricelab.integration.sql_export` | `pricelab.integration.duckdb_export` |
+| Purpose | browse/query locally in SSMS | **the deployed dashboard's data source** |
+| Reachable from the internet? | No, and it shouldn't be | N/A - it's a file shipped with the code |
+
+Every `python -m pricelab.ingest --all` run refreshes both automatically (SQL Server mirroring is
+best-effort: if the `[sqlserver]` extra isn't installed or the server isn't reachable, ingestion
+logs a warning and continues - see `--no-sql` to skip it on purpose).
+
+## The dashboard
+
+```powershell
+pip install -e ".[dashboard]"     # streamlit + plotly (once)
+streamlit run dashboard/app.py    # or: .\run.cmd dashboard
+```
+
+Opens `http://localhost:8501` with 4 pages: **Home** (KPIs + General CPI), **CPI Trends**
+(compare price groups over time), **Crop Production** (top districts by area/production/yield),
+**Data Explorer** (filter + download `master_long`). It reads only the DuckDB snapshot - never
+SQL Server - so it works identically once deployed.
+
+### Deploying it publicly (Streamlit Community Cloud - free)
+
+1. Push this repo to GitHub (see below).
+2. Go to <https://share.streamlit.io>, sign in with GitHub, **New app**.
+3. Pick this repo/branch, set **Main file path** to `dashboard/app.py`, Deploy.
+4. Streamlit Cloud installs `requirements.txt` (which installs `pricelab` + the dashboard extra)
+   and serves the same 4 pages at a public `*.streamlit.app` URL.
+5. To publish new data: run ingestion locally (refreshes `pricelab.duckdb`), commit, push - the
+   deployed app updates automatically (or click "Rerun" on share.streamlit.io).
 
 ## The tidy-long schema (`pricelab.schema`)
 
@@ -115,13 +164,17 @@ Uniqueness key: `date, freq, region, commodity, variable, source`.
 ## Project layout
 
 ```
-config/            YAML: sources, commodities, regions, analysis settings
+config/            YAML: sources, commodities, regions, analysis, database settings
 src/pricelab/
   config.py        config + path resolution (PRICELAB_DATA_DIR seam)
   schema.py        tidy-long schema + validation
   ingestion/       one loader per source shape
-  integration/     harmonize keys, build master_long, write report
+  integration/     harmonize keys, build master_long, write report,
+                   sql_export.py (local SQL Server), duckdb_export.py (snapshot)
+  dashboard/       data.py (duckdb reads), theme.py (chart colors)
   ingest.py        CLI: python -m pricelab.ingest
+dashboard/         Streamlit app: app.py (home) + pages/ (CPI Trends, Crop
+                   Production, Data Explorer) - this is what gets deployed
 data/{raw,interim,processed}/
 notebooks/         01_ingestion.ipynb (more to come)
 tests/             pytest suite (runs against data/raw)

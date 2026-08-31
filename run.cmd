@@ -15,6 +15,8 @@ if "%1"=="test" (
   "%PY%" -m pytest %2 %3 %4 %5
 ) else if "%1"=="nb" (
   "%PY%" -m jupyter nbconvert --to notebook --execute --inplace notebooks/01_ingestion.ipynb
+) else if "%1"=="dashboard" (
+  "%PY%" -m streamlit run dashboard/app.py
 ) else (
   "%PY%" -m pricelab.ingest --all %1 %2 %3 %4 %5
 )

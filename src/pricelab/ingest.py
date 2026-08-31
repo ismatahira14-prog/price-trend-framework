@@ -17,10 +17,16 @@ from pricelab.integration.build_master import IngestResult, build_master
 from pricelab.integration.report import build_report
 
 
-def run(*, all: bool = True, sources: list[str] | None = None, write: bool = True) -> IngestResult:
+def run(
+    *,
+    all: bool = True,
+    sources: list[str] | None = None,
+    write: bool = True,
+    to_sql: bool = True,
+) -> IngestResult:
     """Programmatic entry point (used by notebooks)."""
     only = None if all and not sources else (sources or [])
-    result = build_master(only=only, write=write)
+    result = build_master(only=only, write=write, to_sql=to_sql)
     build_report(result, write=write)
     return result
 
@@ -57,6 +63,9 @@ def main(argv: list[str] | None = None) -> int:
         help="run only this source (repeatable)",
     )
     parser.add_argument("--no-write", action="store_true", help="do not write output files")
+    parser.add_argument(
+        "--no-sql", action="store_true", help="skip mirroring to local SQL Server"
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
 
@@ -69,7 +78,9 @@ def main(argv: list[str] | None = None) -> int:
         known = ", ".join(load_config()["sources"] or {})
         parser.error(f"pass --all or --source KEY. Known sources: {known}")
 
-    result = run(all=args.all, sources=args.sources, write=not args.no_write)
+    result = run(
+        all=args.all, sources=args.sources, write=not args.no_write, to_sql=not args.no_sql
+    )
     _print_summary(result)
     return 0
 

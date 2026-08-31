@@ -17,9 +17,14 @@ env/
 # Jupyter
 .ipynb_checkpoints/
 
-# Data derivatives (raw/ is kept in the repo on purpose)
+# Data derivatives (raw/ is kept in the repo on purpose).
+# Note: "data/processed/*" (not "data/processed/") so the negation below can
+# still reach into the directory - gitignore won't look inside a fully-ignored dir.
 data/interim/
-data/processed/
+data/processed/*
+# ...except the DuckDB snapshot: it's the data source the deployed dashboard
+# reads, so it must be committed and kept in sync (ingestion regenerates it).
+!data/processed/pricelab.duckdb
 
 # Editors / OS
 .vscode/*

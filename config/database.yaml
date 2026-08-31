@@ -1,0 +1,22 @@
+# Database targets for the ingestion pipeline.
+#
+# sql_server: your LOCAL working database (browsable in SSMS). Only used when
+#   you run ingestion on this machine with the [sqlserver] extra installed.
+#   Not reachable by the deployed dashboard - see `snapshot` below.
+#
+# snapshot: a single DuckDB file committed to the git repo. This is what the
+#   deployed Streamlit dashboard reads - no server, no credentials, works
+#   from anywhere the repo is cloned (including Streamlit Community Cloud).
+
+sql_server:
+  enabled: true
+  server: "localhost"          # default instance -> just the machine name
+  database: "PriceTrendFramework"
+  driver: "ODBC Driver 17 for SQL Server"
+  trusted_connection: true     # Windows Authentication (your login, no password)
+  # username / password only used if trusted_connection is false
+  username: ""
+  password: ""
+
+snapshot:
+  path: "processed/pricelab.duckdb"   # relative to data_dir()
