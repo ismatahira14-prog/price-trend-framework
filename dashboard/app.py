@@ -98,8 +98,27 @@ def _register_click(event: dict | None, chart_key: str, ct: pd.DataFrame) -> Non
     st.session_state["trigger_scroll"] = True
 
 
-def _add_event_bands(fig: go.Figure, hover_y: float, x_min, x_max) -> None:
-    for i, e in enumerate(EVENTS):
+def _pack_event_rows(events: list[dict]) -> list[tuple[dict, int]]:
+    """Greedy interval scheduling: only give two events the same label row if
+    their date ranges don't overlap, so labels never collide."""
+    row_end: list[pd.Timestamp] = []
+    packed: list[tuple[dict, int]] = []
+    for e in sorted(events, key=lambda e: e["start"]):
+        row = next((r for r, end in enumerate(row_end) if end < e["start"]), None)
+        if row is None:
+            row = len(row_end)
+            row_end.append(e["end"])
+        else:
+            row_end[row] = e["end"]
+        packed.append((e, row))
+    return packed
+
+
+def _add_event_bands(fig: go.Figure, hover_y: float, x_min, x_max) -> int:
+    """Returns the number of label rows used, so the caller can size the top margin."""
+    packed = _pack_event_rows(EVENTS)
+    n_rows = max((row for _, row in packed), default=-1) + 1
+    for e, row in packed:
         start, end = max(e["start"], x_min), min(e["end"], x_max)
         if start >= end:
             continue
@@ -108,7 +127,7 @@ def _add_event_bands(fig: go.Figure, hover_y: float, x_min, x_max) -> None:
         )
         fig.add_annotation(
             x=start + (end - start) / 2,
-            y=1.0 + 0.06 * (i % 2),
+            y=1.04 + 0.11 * row,
             yref="paper",
             text=e["name"],
             showarrow=False,
@@ -122,21 +141,51 @@ def _add_event_bands(fig: go.Figure, hover_y: float, x_min, x_max) -> None:
                 mode="markers",
                 marker=dict(size=10, color=e["color"], opacity=0.01),
                 showlegend=False,
+                hoverinfo="skip",
                 hovertemplate=f"<b>{e['name']}</b><br>{e['description']}<extra></extra>",
             )
         )
+    return n_rows
 
 
-def _base_layout(fig: go.Figure, y_title: str) -> None:
+def _add_click_catcher(fig: go.Figure, dates) -> None:
+    """An invisible, full-height column per date on a hidden secondary axis.
+
+    Bar charts near zero (small dips) render as a sliver a few pixels tall,
+    which is nearly impossible to click precisely. This adds one transparent
+    full-height bar per month, on its own overlaid y-axis, so clicking
+    ANYWHERE in that month's column selects it - regardless of how tall the
+    real (visible) bar is. hoverinfo="skip" keeps it out of tooltips, and
+    hovermode="x" (set in _base_layout) keeps the real series' own tooltips
+    working normally alongside it.
+    """
+    fig.add_trace(
+        go.Bar(
+            x=dates,
+            y=[1] * len(dates),
+            yaxis="y2",
+            marker_color="rgba(0,0,0,0)",
+            hoverinfo="skip",
+            showlegend=False,
+        )
+    )
     fig.update_layout(
-        height=440,
-        margin=dict(l=10, r=10, t=40, b=10),
+        yaxis2=dict(overlaying="y", range=[0, 1], visible=False, fixedrange=True),
+        barmode="overlay",
+    )
+
+
+def _base_layout(fig: go.Figure, y_title: str, *, event_rows: int = 0) -> None:
+    fig.update_layout(
+        height=440 + 18 * event_rows,
+        margin=dict(l=10, r=10, t=50 + 18 * event_rows, b=10),
         yaxis_title=y_title,
         plot_bgcolor="rgba(0,0,0,0)",
-        legend=dict(orientation="h", yanchor="bottom", y=1.10, xanchor="left", x=0),
+        legend=dict(orientation="h", yanchor="top", y=-0.18, xanchor="left", x=0),
         xaxis=dict(showgrid=False),
         yaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.15)"),
         clickmode="event+select",
+        hovermode="x",
     )
 
 
@@ -226,8 +275,9 @@ with tab_index:
             hovertemplate="%{x|%b %Y}<br>Quarter avg: %{y:.1f}<extra></extra>",
         )
     )
-    _add_event_bands(fig, hover_y=ct["cpi"].max() * 1.03, x_min=x_min, x_max=x_max)
-    _base_layout(fig, "Index (2015-16 = 100)")
+    n_rows = _add_event_bands(fig, hover_y=ct["cpi"].max() * 1.03, x_min=x_min, x_max=x_max)
+    _add_click_catcher(fig, ct.index)  # lines are thin - make the whole column clickable
+    _base_layout(fig, "Index (2015-16 = 100)", event_rows=n_rows)
     ev_index = st.plotly_chart(
         fig, use_container_width=True, on_select="rerun", key="chart_index", selection_mode="points"
     )
@@ -242,13 +292,14 @@ with tab_mom:
         )
     )
     fig.add_hline(y=0, line_color="rgba(128,128,128,0.5)", line_width=1)
-    _add_event_bands(
+    n_rows = _add_event_bands(
         fig,
         hover_y=(ct["mom_pct"].max(skipna=True) or 1) * 1.15,
         x_min=x_min,
         x_max=x_max,
     )
-    _base_layout(fig, "Month-over-month change (%)")
+    _add_click_catcher(fig, ct.index)  # small dips near 0% are a sliver-thin, hard-to-click bar
+    _base_layout(fig, "Month-over-month change (%)", event_rows=n_rows)
     ev_mom = st.plotly_chart(
         fig, use_container_width=True, on_select="rerun", key="chart_mom", selection_mode="points"
     )
@@ -264,13 +315,14 @@ with tab_yoy:
         )
     )
     fig.add_hline(y=0, line_color="rgba(128,128,128,0.5)", line_width=1)
-    _add_event_bands(
+    n_rows = _add_event_bands(
         fig,
         hover_y=(ct["yoy_pct"].max(skipna=True) or 1) * 1.1,
         x_min=x_min,
         x_max=x_max,
     )
-    _base_layout(fig, "Year-over-year change (%)")
+    _add_click_catcher(fig, ct.index)  # small dips near 0% are a sliver-thin, hard-to-click bar
+    _base_layout(fig, "Year-over-year change (%)", event_rows=n_rows)
     ev_yoy = st.plotly_chart(
         fig, use_container_width=True, on_select="rerun", key="chart_yoy", selection_mode="points"
     )
