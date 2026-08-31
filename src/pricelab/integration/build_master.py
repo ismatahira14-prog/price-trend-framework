@@ -75,9 +75,16 @@ def build_master(only: list[str] | None = None, *, write: bool = True) -> Ingest
         xlsx = processed_dir() / "master_long.xlsx"
         result.master.to_parquet(pq, index=False)
         result.master.to_csv(csv, index=False)
-        write_excel(result.master, xlsx)
         result.paths["master_long_parquet"] = str(pq)
         result.paths["master_long_csv"] = str(csv)
-        result.paths["master_long_xlsx"] = str(xlsx)
+        try:
+            write_excel(result.master, xlsx)
+            result.paths["master_long_xlsx"] = str(xlsx)
+        except PermissionError:
+            log.warning(
+                "Could not write %s - it looks like it's open in Excel. "
+                "Close it and re-run to refresh the .xlsx (csv/parquet were updated fine).",
+                xlsx,
+            )
 
     return result
