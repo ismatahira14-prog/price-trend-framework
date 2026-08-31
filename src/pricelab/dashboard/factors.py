@@ -43,30 +43,35 @@ from pricelab.dashboard.theme import EVENT_BAND_HUES, FACTOR_ORDER
 EVENTS: list[dict] = [
     {
         "name": "COVID-19 Pandemic",
+        "short_name": "COVID-19",
         "start": "2020-03-01",
         "end": "2021-12-31",
         "description": "Global pandemic lockdowns disrupted supply chains, transport, and demand worldwide.",
     },
     {
         "name": "Global Supply-Chain Disruption",
+        "short_name": "Supply Chain",
         "start": "2021-06-01",
         "end": "2022-06-30",
         "description": "Post-pandemic shipping bottlenecks and input shortages pushed up global goods prices.",
     },
     {
         "name": "Russia-Ukraine War",
+        "short_name": "Russia-Ukraine War",
         "start": "2022-02-24",
         "end": "2023-06-30",
         "description": "War-driven spikes in global energy, food, and fertilizer prices.",
     },
     {
         "name": "2022 Pakistan Floods",
+        "short_name": "Pakistan Floods",
         "start": "2022-06-14",
         "end": "2022-09-30",
         "description": "Catastrophic floods damaged crops and infrastructure, disrupting domestic food supply.",
     },
     {
         "name": "Currency Devaluation & Energy Price Reform",
+        "short_name": "Currency Devaluation",
         "start": "2023-01-01",
         "end": "2023-07-31",
         "description": "IMF-program currency depreciation and fuel/energy price adjustments drove CPI to record highs.",

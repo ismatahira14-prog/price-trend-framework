@@ -115,7 +115,17 @@ def _pack_event_rows(events: list[dict]) -> list[tuple[dict, int]]:
 
 
 def _add_event_bands(fig: go.Figure, hover_y: float, x_min, x_max) -> int:
-    """Returns the number of label rows used, so the caller can size the top margin."""
+    """Returns the number of label rows used, so the caller can size the top margin.
+
+    Labels are short (see EVENTS[i]["short_name"]), vertical, and anchored at
+    each band's START rather than its center: horizontal text width doesn't
+    scale with the time axis, so two short-duration events close together in
+    time (but not overlapping) could still collide as horizontal text even
+    though their date ranges don't overlap. Vertical text has almost no
+    horizontal footprint, which is what actually fixes that; row-packing
+    (by real date overlap) remains as a second line of defense for bands
+    that genuinely do overlap.
+    """
     packed = _pack_event_rows(EVENTS)
     n_rows = max((row for _, row in packed), default=-1) + 1
     for e, row in packed:
@@ -126,13 +136,15 @@ def _add_event_bands(fig: go.Figure, hover_y: float, x_min, x_max) -> int:
             x0=start, x1=end, fillcolor=e["color"], opacity=0.10, line_width=0, layer="below"
         )
         fig.add_annotation(
-            x=start + (end - start) / 2,
-            y=1.04 + 0.11 * row,
+            x=start,
+            y=1.02 + 0.03 * row,
             yref="paper",
-            text=e["name"],
+            text=e.get("short_name", e["name"]),
             showarrow=False,
             font=dict(size=9, color="#666"),
-            xanchor="center",
+            textangle=-90,
+            xanchor="left",
+            yanchor="bottom",
         )
         fig.add_trace(
             go.Scatter(
@@ -176,9 +188,13 @@ def _add_click_catcher(fig: go.Figure, dates) -> None:
 
 
 def _base_layout(fig: go.Figure, y_title: str, *, event_rows: int = 0) -> None:
+    # Vertical event labels need real headroom above the plot (their text runs
+    # upward, not sideways) - 130px comfortably fits the longest short_name
+    # ("Currency Devaluation"); +20px per extra row for genuinely overlapping events.
+    top_margin = 130 + 20 * max(event_rows - 1, 0)
     fig.update_layout(
-        height=440 + 18 * event_rows,
-        margin=dict(l=10, r=10, t=50 + 18 * event_rows, b=10),
+        height=440 + top_margin - 130,
+        margin=dict(l=10, r=10, t=top_margin, b=10),
         yaxis_title=y_title,
         plot_bgcolor="rgba(0,0,0,0)",
         legend=dict(orientation="h", yanchor="top", y=-0.18, xanchor="left", x=0),
