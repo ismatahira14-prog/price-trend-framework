@@ -170,7 +170,9 @@ def _add_event_bands(fig: go.Figure, hover_y: float, x_min, x_max) -> int:
                 mode="markers",
                 marker=dict(size=10, color=e["color"], opacity=0.01),
                 showlegend=False,
-                hoverinfo="skip",
+                # NOTE: hoverinfo="skip" would suppress the hover EVENT entirely
+                # (not just the tooltip text) - the custom hovertemplate below
+                # is what actually controls what's shown.
                 hovertemplate=f"<b>{e.get('short_name', e['name'])}</b><extra></extra>",
             )
         )
@@ -198,34 +200,40 @@ def _add_inflation_bands(fig: go.Figure, y_lo: float, y_hi: float) -> None:
             )
 
 
-def _add_click_catcher(fig: go.Figure, dates) -> None:
-    """An invisible, full-height column per date on a hidden secondary axis.
+def _add_click_catcher(fig: go.Figure, dates, y_value: float) -> None:
+    """One invisible marker per date, so every month is individually clickable.
 
-    Values near zero render as a sliver a few pixels tall, nearly impossible
-    to click precisely. This adds one transparent full-height bar per month,
-    on its own overlaid y-axis with a FIXED [0,1] range, so clicking ANYWHERE
-    in that month's column selects it - regardless of how small the real
-    value is. hoverinfo="skip" keeps it out of tooltips, and hovermode="x"
-    (set in _base_layout) keeps the real series' own tooltips working
-    alongside it.
+    History of getting this right (verified live with Playwright, not just
+    inferred - Plotly's docs don't spell this out clearly):
 
-    IMPORTANT: never call ``fig.update_yaxes(...)`` (no selector) after this -
-    it touches every y-axis including this hidden one, silently breaking the
-    click target. Set the primary axis range via `_base_layout`'s `y_range`.
+    1. First attempt used an invisible full-height ``go.Bar`` on a hidden
+       secondary axis. ``hoverinfo="skip"`` on it turned out to exclude the
+       trace from Plotly's hover/click/selection system ENTIRELY - so
+       on_select's `points` was always empty. Fixed by using
+       ``hoverinfo="none"`` instead (suppresses the tooltip, keeps the trace
+       participating in events).
+    2. That fixed `plotly_click`, but `plotly_selected` (what Streamlit's
+       `on_select` actually reads) still came back empty - bar traces don't
+       support Plotly's click-to-select-a-single-point behavior at all, only
+       box/lasso drag-select. Fixed by switching to an invisible
+       ``go.Scatter(mode="markers")`` trace instead, the trace type Plotly's
+       single-click selection is actually built for.
+
+    The line/bar traces underneath don't need markers themselves:
+    ``hovermode="x"`` (set in `_base_layout`) makes a click anywhere in a
+    month's column register against every trace at that x, including this
+    one, regardless of how far the invisible marker's y-value is from the
+    click.
     """
     fig.add_trace(
-        go.Bar(
+        go.Scatter(
             x=dates,
-            y=[1] * len(dates),
-            yaxis="y2",
-            marker_color="rgba(0,0,0,0)",
-            hoverinfo="skip",
+            y=[y_value] * len(dates),
+            mode="markers",
+            marker=dict(size=1, opacity=0),
+            hoverinfo="none",
             showlegend=False,
         )
-    )
-    fig.update_layout(
-        yaxis2=dict(overlaying="y", range=[0, 1], visible=False, fixedrange=True),
-        barmode="overlay",
     )
 
 
@@ -372,7 +380,7 @@ with col_left:
         )
     )
     n_rows_l = _add_event_bands(fig, hover_y=ct["cpi"].max() * 1.03, x_min=x_min, x_max=x_max)
-    _add_click_catcher(fig, ct.index)
+    _add_click_catcher(fig, ct.index, ct["cpi"].median())
     _base_layout(fig, "Index (2015-16 = 100)", event_rows=n_rows_l)
     ev_index = st.plotly_chart(
         fig, use_container_width=True, on_select="rerun", key="chart_index", selection_mode="points"
@@ -404,7 +412,7 @@ with col_right:
         )
     )
     n_rows_r = _add_event_bands(fig, hover_y=y_hi * 0.92, x_min=x_min, x_max=x_max)
-    _add_click_catcher(fig, ct.index)
+    _add_click_catcher(fig, ct.index, (y_lo + y_hi) / 2)
     _base_layout(fig, "Change (%)", event_rows=n_rows_r, right_margin=95, y_range=[y_lo, y_hi])
     ev_combined = st.plotly_chart(
         fig, use_container_width=True, on_select="rerun", key="chart_combined", selection_mode="points"

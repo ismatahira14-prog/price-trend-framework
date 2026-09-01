@@ -51,3 +51,35 @@ def test_selected_period_breakdown_has_all_12_real_groups():
     breakdown = at.dataframe[0].value  # first dataframe = the 12-group breakdown
     assert len(breakdown) == 12
     assert set(breakdown["Inflation Group"]) == set(CPI_GROUP_ORDER[1:])
+
+
+def test_click_catchers_are_actually_selectable():
+    """Regression test for a real bug found via live browser testing
+    (Playwright): an invisible click-catcher trace with hoverinfo="skip"
+    is silently excluded from Plotly's entire hover/click/selection system -
+    so on_select's `points` was always empty, no matter where you clicked.
+    A go.Bar catcher also didn't work even after fixing hoverinfo, because
+    bar traces don't support single-click-to-select at all in Plotly - only
+    marker-based scatter traces do. AppTest can't simulate a real browser
+    click, so this checks the underlying figure spec is built correctly
+    instead - the only way this repo can pin these two constraints down.
+    """
+    import json
+
+    at = AppTest.from_file(str(APP_PATH), default_timeout=60).run()
+    assert not at.exception, [e.message for e in at.exception]
+
+    for chart in at.get("plotly_chart")[:2]:  # the two clickable charts
+        spec = json.loads(chart.proto.spec)
+        catchers = [
+            t
+            for t in spec["data"]
+            if t.get("type") == "scatter"
+            and t.get("mode") == "markers"
+            and t.get("marker", {}).get("opacity") == 0
+        ]
+        assert catchers, "no invisible click-catcher scatter trace found"
+        for t in catchers:
+            assert t.get("hoverinfo") != "skip", (
+                "hoverinfo='skip' excludes a trace from click/selection entirely"
+            )
