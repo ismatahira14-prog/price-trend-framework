@@ -16,7 +16,17 @@ def test_events_are_dated_and_tagged():
         assert e["color"]
         assert e["scope"] in {"global", "domestic"}
         assert isinstance(e["channels"], list) and e["channels"]
-        assert isinstance(e.get("labeled_on_chart"), bool)
+        assert isinstance(e.get("core_chart_event"), bool)
+
+
+def test_exactly_four_core_chart_events():
+    core = {e["name"] for e in EVENTS if e["core_chart_event"]}
+    assert core == {
+        "COVID-19 Pandemic",
+        "2022 Pakistan Floods",
+        "Russia-Ukraine War",
+        "Currency Devaluation & Energy Price Reform",
+    }
 
 
 def test_events_covering_finds_known_event():

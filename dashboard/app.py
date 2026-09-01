@@ -4,21 +4,16 @@ Run locally:   streamlit run dashboard/app.py   (or: .\\run.cmd dashboard)
 Deployed:      Streamlit Community Cloud, same entry point, reads the
                committed DuckDB snapshot at data/processed/pricelab.duckdb.
 
-Page flow (see README.md for the full write-up):
-  KPIs -> side-by-side [Index & moving averages] + [combined MoM/YoY chart
-  with inflation-magnitude bands] -> click a point -> page scrolls to "What
-  Caused the Inflation Spike?" -> real per-CPI-group (12 groups) breakdown
-  for that month -> full month-by-month / year-by-year archives -> Global
-  Events table.
+DATA-INTEGRITY NOTE: every number in "What caused the inflation spike?" is
+REAL (the actual PBS CPI series for each of the 12 COICOP groups - see
+`pricelab.dashboard.data.group_change_table`). "Relative magnitude" is a
+computed rank among the 12 groups that period, NOT an official basket-weight
+contribution percentage (this project's data has no official CPI weights).
 
-DATA-INTEGRITY NOTE: every number in the "What Caused the Inflation Spike?"
-section is now REAL (the actual PBS CPI series for each of the 12 COICOP
-groups - see `pricelab.dashboard.data.group_change_table`). There is no
-mock/placeholder data on this page anymore. "Relative magnitude" is a
-computed rank among the 12 groups that period (see
-`pricelab.dashboard.factors.classify_relative_magnitude`) - it is NOT an
-official basket-weight contribution percentage, which this project's data
-does not include; the UI says so explicitly.
+NOTE ON BRANDING: the header badge below is a generic, clearly-not-official
+placeholder - not the real Pakistan Bureau of Statistics emblem. Swap in the
+genuine logo (as a local image passed to `st.image`) if/when you have rights
+to use it; don't want this project to look like an official PBS product.
 """
 
 from __future__ import annotations
@@ -50,7 +45,6 @@ from pricelab.dashboard.factors import (  # noqa: E402
     load_inflation_bands,
 )
 from pricelab.dashboard.theme import (  # noqa: E402
-    CPI_COLORS,
     CPI_GROUP_ORDER,
     DECREASE_COLOR,
     HIGHLIGHT_HUE,
@@ -59,6 +53,8 @@ from pricelab.dashboard.theme import (  # noqa: E402
     MA_3M_COLOR,
     MA_6M_COLOR,
     MA_QUARTER_COLOR,
+    PBS_GREEN,
+    PBS_GREEN_DARK,
     SEQUENTIAL_HUE,
 )
 
@@ -66,12 +62,13 @@ st.set_page_config(
     page_title="Pakistan Price Trend Framework",
     page_icon="📈",
     layout="wide",
-    initial_sidebar_state="collapsed",  # menu hidden by default - see README "Collapsed sidebar"
+    initial_sidebar_state="collapsed",
 )
 
 ANCHOR_ID = "factor-analysis-anchor"
 GROUPS_12 = CPI_GROUP_ORDER[1:]  # everything except "General" - the 12 COICOP groups
-SOURCE_NOTE = "Source: Pakistan Bureau of Statistics (PBS) Consumer Price Index · monthly · base 2015-16 = 100"
+CORE_EVENTS = [e for e in EVENTS if e["core_chart_event"]]
+SOURCE_NOTE = "Source: Pakistan Bureau of Statistics (PBS) Consumer Price Index · base 2015-16 = 100"
 
 
 @st.cache_data(ttl=3600)
@@ -136,39 +133,38 @@ def _pack_event_rows(events: list[dict]) -> list[tuple[dict, int]]:
 
 
 def _add_event_bands(fig: go.Figure, hover_y: float, x_min, x_max) -> int:
-    """Shade + hover-tag every event; text-label only the curated subset
-    (``labeled_on_chart``) to avoid crowding with 11 dated events. Returns the
-    number of label rows used, so the caller can size the top margin.
+    """Shade + label + name-only-hover the 4 core events (COVID-19, the 2022
+    floods, the Russia-Ukraine war, the 2023 currency devaluation). The other
+    dated events (see the Global Events table) are deliberately left off the
+    charts to keep them readable. Returns the number of label rows used, so
+    the caller can size the top margin.
 
     Labels are short, vertical, and anchored at each band's START rather than
     its center: horizontal text width doesn't scale with the time axis, so
     two short-duration events close in time (but not overlapping) could still
-    collide as horizontal text. Vertical text has almost no horizontal
-    footprint, which is what actually fixes that; row-packing (by real date
-    overlap) remains as a second line of defense for bands that do overlap.
+    collide as horizontal text. Row-packing (by real date overlap) is a
+    second line of defense for the rare case two core events do overlap.
     """
-    packed = _pack_event_rows(EVENTS)
-    labeled_rows = [row for e, row in packed if e.get("labeled_on_chart")]
-    n_rows = max(labeled_rows, default=-1) + 1
+    packed = _pack_event_rows(CORE_EVENTS)
+    n_rows = max((row for _, row in packed), default=-1) + 1
     for e, row in packed:
         start, end = max(e["start"], x_min), min(e["end"], x_max)
         if start >= end:
             continue
         fig.add_vrect(
-            x0=start, x1=end, fillcolor=e["color"], opacity=0.10, line_width=0, layer="below"
+            x0=start, x1=end, fillcolor=e["color"], opacity=0.12, line_width=0, layer="below"
         )
-        if e.get("labeled_on_chart"):
-            fig.add_annotation(
-                x=start,
-                y=1.02 + 0.03 * row,
-                yref="paper",
-                text=e.get("short_name", e["name"]),
-                showarrow=False,
-                font=dict(size=9, color="#666"),
-                textangle=-90,
-                xanchor="left",
-                yanchor="bottom",
-            )
+        fig.add_annotation(
+            x=start,
+            y=1.02 + 0.03 * row,
+            yref="paper",
+            text=e.get("short_name", e["name"]),
+            showarrow=False,
+            font=dict(size=9, color="#666"),
+            textangle=-90,
+            xanchor="left",
+            yanchor="bottom",
+        )
         fig.add_trace(
             go.Scatter(
                 x=[start + (end - start) / 2],
@@ -177,7 +173,7 @@ def _add_event_bands(fig: go.Figure, hover_y: float, x_min, x_max) -> int:
                 marker=dict(size=10, color=e["color"], opacity=0.01),
                 showlegend=False,
                 hoverinfo="skip",
-                hovertemplate=f"<b>{e['name']}</b> ({e['scope']})<br>{e['description']}<extra></extra>",
+                hovertemplate=f"<b>{e.get('short_name', e['name'])}</b><extra></extra>",
             )
         )
     return n_rows
@@ -200,19 +196,24 @@ def _add_inflation_bands(fig: go.Figure, y_lo: float, y_hi: float) -> None:
                 x=1.0, xref="paper", xanchor="left",
                 y=(vis_lo + vis_hi) / 2, yref="y",
                 text=b["label"], showarrow=False,
-                font=dict(size=9, color="#777"),
+                font=dict(size=9, color="#555"),
             )
 
 
 def _add_click_catcher(fig: go.Figure, dates) -> None:
     """An invisible, full-height column per date on a hidden secondary axis.
 
-    Bar/line values near zero render as a sliver a few pixels tall, nearly
-    impossible to click precisely. This adds one transparent full-height bar
-    per month, on its own overlaid y-axis, so clicking ANYWHERE in that
-    month's column selects it - regardless of how small the real value is.
-    hoverinfo="skip" keeps it out of tooltips, and hovermode="x" (set in
-    _base_layout) keeps the real series' own tooltips working alongside it.
+    Values near zero render as a sliver a few pixels tall, nearly impossible
+    to click precisely. This adds one transparent full-height bar per month,
+    on its own overlaid y-axis with a FIXED [0,1] range, so clicking ANYWHERE
+    in that month's column selects it - regardless of how small the real
+    value is. hoverinfo="skip" keeps it out of tooltips, and hovermode="x"
+    (set in _base_layout) keeps the real series' own tooltips working
+    alongside it.
+
+    IMPORTANT: never call ``fig.update_yaxes(...)`` (no selector) after this -
+    it touches every y-axis including this hidden one, silently breaking the
+    click target. Set the primary axis range via `_base_layout`'s `y_range`.
     """
     fig.add_trace(
         go.Bar(
@@ -230,11 +231,21 @@ def _add_click_catcher(fig: go.Figure, dates) -> None:
     )
 
 
-def _base_layout(fig: go.Figure, y_title: str, *, event_rows: int = 0, right_margin: int = 10) -> None:
+def _base_layout(
+    fig: go.Figure,
+    y_title: str,
+    *,
+    event_rows: int = 0,
+    right_margin: int = 10,
+    y_range: list[float] | None = None,
+) -> None:
     # Vertical event labels need real headroom above the plot (their text runs
     # upward, not sideways) - 130px comfortably fits the longest short_name;
     # +20px per extra row for genuinely overlapping labeled events.
     top_margin = 130 + 20 * max(event_rows - 1, 0)
+    yaxis_cfg = dict(showgrid=True, gridcolor="rgba(128,128,128,0.15)")
+    if y_range is not None:
+        yaxis_cfg["range"] = y_range
     fig.update_layout(
         height=440 + top_margin - 130,
         margin=dict(l=10, r=right_margin, t=top_margin, b=10),
@@ -242,17 +253,40 @@ def _base_layout(fig: go.Figure, y_title: str, *, event_rows: int = 0, right_mar
         plot_bgcolor="rgba(0,0,0,0)",
         legend=dict(orientation="h", yanchor="top", y=-0.18, xanchor="left", x=0),
         xaxis=dict(showgrid=False),
-        yaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.15)"),
+        yaxis=yaxis_cfg,
         clickmode="event+select",
         hovermode="x",
     )
 
 
 # ------------------------------------------------------------------------- #
-st.title("📈 A Data-Driven Framework for Price Trend Analysis")
-st.caption(
-    "Data Collection → Integration → Cleaning → EDA → Factor ID → Forecasting → "
-    "Uncertainty → Visualization → Decision Support"
+# Header (PBS-style banner - see the module docstring's branding note)
+# ------------------------------------------------------------------------- #
+st.markdown(
+    f"""
+    <style>
+    .pbs-header {{
+        background: linear-gradient(90deg, {PBS_GREEN_DARK}, {PBS_GREEN});
+        color: white; padding: 16px 22px; border-radius: 8px;
+        display: flex; align-items: center; gap: 14px; margin-bottom: 8px;
+    }}
+    .pbs-header .badge {{
+        background: white; color: {PBS_GREEN_DARK}; font-weight: 700;
+        border-radius: 50%; width: 44px; height: 44px; flex-shrink: 0;
+        display: flex; align-items: center; justify-content: center; font-size: 13px;
+    }}
+    .pbs-header h1 {{ font-size: 1.35rem; margin: 0; color: white; }}
+    .pbs-header p {{ margin: 2px 0 0; font-size: 0.82rem; opacity: 0.92; }}
+    </style>
+    <div class="pbs-header">
+        <div class="badge">PBS</div>
+        <div>
+            <h1>Price Trend Framework</h1>
+            <p>Pakistan Consumer Price Index · Statistical Dashboard</p>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
 try:
@@ -289,16 +323,11 @@ c4.metric(
     f"{peak_yoy_val:+.1f}%" if peak_yoy_val is not None else "n/a",
     help=f"Recorded {peak_yoy_date:%b %Y}" if peak_yoy_date is not None else None,
 )
-st.caption(SOURCE_NOTE + f" · data period {ct.index.min():%b %Y} – {ct.index.max():%b %Y}")
+st.caption(SOURCE_NOTE + f" · {ct.index.min():%b %Y} – {ct.index.max():%b %Y}")
 
 st.divider()
 
 # ---------------------------------------------------------- main analysis --
-st.caption(
-    "Click any point on either chart below to jump to its factor analysis further down the "
-    "page. Shaded vertical bands mark major events - hover one for a short explanation."
-)
-
 x_min, x_max = ct.index.min(), ct.index.max()
 col_left, col_right = st.columns(2)
 
@@ -367,37 +396,15 @@ with col_right:
     )
     n_rows_r = _add_event_bands(fig, hover_y=y_hi * 0.92, x_min=x_min, x_max=x_max)
     _add_click_catcher(fig, ct.index)
-    _base_layout(fig, "Change (%)", event_rows=n_rows_r, right_margin=95)
-    fig.update_yaxes(range=[y_lo, y_hi])
+    _base_layout(fig, "Change (%)", event_rows=n_rows_r, right_margin=95, y_range=[y_lo, y_hi])
     ev_combined = st.plotly_chart(
         fig, use_container_width=True, on_select="rerun", key="chart_combined", selection_mode="points"
     )
     _register_click(ev_combined, "chart_combined", ct)
-    st.caption(
-        "Horizontal bands are illustrative magnitude tiers (edit in `config/analysis.yaml`), "
-        "not an official PBS classification. The dark line at 0% separates inflation from deflation."
-    )
 
-with st.expander("Major events shown on these charts"):
-    st.caption(
-        "Shading marks when an event was ACTIVE - it does not, by itself, mean that event "
-        "caused a Pakistan CPI move. Domestic events are Pakistan-specific; global events are "
-        "broader macro/geopolitical developments. See the Global Events table further down."
-    )
-    for e in EVENTS:
-        end_label = "Ongoing" if e.get("is_ongoing") else f"{e['end']:%b %Y}"
-        st.markdown(
-            f"**{e['name']}** _{e['scope']}_ &nbsp; ({e['start']:%b %Y} – {end_label})  \n{e['description']}"
-        )
-
-st.divider()
-
-# ---------------------------------------------------------- other pages ---
-st.subheader("Other analytics")
-st.info(
-    "**CPI Trends** (sidebar) compares any set of price groups side by side. "
-    "**Crop Production** (sidebar) shows district-level area/production/yield. "
-    "**Data Explorer** (sidebar) lets you filter and download the raw table."
+st.caption(
+    "Click a point on either chart to see what caused that spike ↓ · shaded bands = major events, "
+    "colored horizontal bands = inflation severity."
 )
 
 st.divider()
@@ -438,26 +445,15 @@ row = ct.loc[selected]
 active_events = events_covering(selected)
 
 st.markdown(f"**Selected period: {selected:%B %Y}**")
-st.caption(SOURCE_NOTE)
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("General CPI", f"{row['cpi']:.1f}")
 m2.metric("General MoM", f"{row['mom_pct']:+.2f}%" if pd.notna(row["mom_pct"]) else "n/a")
 m3.metric("General YoY", f"{row['yoy_pct']:+.2f}%" if pd.notna(row["yoy_pct"]) else "n/a")
-m4.metric("Event active that period", active_events[0]["name"] if active_events else "None on record")
+m4.metric("Event active", active_events[0]["name"] if active_events else "None on record")
 if active_events:
-    for e in active_events:
-        st.caption(
-            f"📌 **{e['name']}** ({e['scope']}): {e['description']} "
-            "— shown for temporal context; this is not a causal claim."
-        )
-
-st.info(
-    "The breakdown below uses the **real PBS CPI series for each of the 12 COICOP groups** - "
-    "no placeholder data. 'Relative magnitude' is a computed rank among the 12 groups that "
-    "month (1st-4th largest |change| = High, 5th-8th = Medium, 9th-12th = Low). It is **not** "
-    "an official basket-weight contribution percentage - this project's data does not include "
-    "official CPI weights, so we do not fabricate one."
-)
+    st.caption(
+        "📌 " + " · ".join(e["name"] for e in active_events) + " (context, not a causal claim)"
+    )
 
 # ------------------------------------------------------- 12-group breakdown -
 period_groups = selected_period_group_table(group_long, selected)
@@ -480,7 +476,7 @@ if not period_groups.empty:
     fig.update_layout(
         height=360,
         margin=dict(l=10, r=40, t=10, b=10),
-        xaxis_title="Month-over-month change that period (%) - largest movers at either end",
+        xaxis_title="Month-over-month change that period (%)",
         plot_bgcolor="rgba(0,0,0,0)",
         xaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.15)", zeroline=True, zerolinecolor="#999"),
     )
@@ -495,6 +491,7 @@ if not period_groups.empty:
         }
     )
     st.dataframe(display, use_container_width=True, hide_index=True)
+    st.caption(f"{SOURCE_NOTE}. Relative Magnitude = rank among the 12 groups that month, not an official weight.")
 else:
     st.warning("No per-group data available for this period yet.")
 
@@ -502,7 +499,7 @@ st.divider()
 
 # ------------------------------------------------------------- Table 1 ----
 st.subheader("Month-by-Month Inflation Change & Contributing Factors")
-st.caption(f"{SOURCE_NOTE}. Rows for the selected month are highlighted.")
+st.caption("Rows for the selected month are highlighted.")
 
 month_label = selected.strftime("%b %Y")
 monthly_ranked = with_relative_magnitude(group_long.dropna(subset=["mom_pct"]), group_col="date")
@@ -532,7 +529,7 @@ st.dataframe(
 
 # ------------------------------------------------------------- Table 2 ----
 st.subheader("Year-by-Year Inflation Change & Contributing Factors")
-st.caption(f"{SOURCE_NOTE}. Values are calendar-year averages of the monthly series. Rows for the selected year are highlighted.")
+st.caption("Calendar-year averages of the monthly series. Rows for the selected year are highlighted.")
 
 yearly_ranked = _yearly_groups(group_long)
 selected_year = selected.year
@@ -558,42 +555,36 @@ st.dataframe(
     height=320,
 )
 
+st.caption(SOURCE_NOTE)
 st.divider()
 
 # ------------------------------------------------------------ Global Events -
 st.subheader("Global Events")
 st.caption(
-    "Major globally-significant events with a plausible inflation transmission channel. "
-    "**Temporal overlap with a Pakistan CPI move is context, not proof of causation.** "
-    "Domestic (Pakistan-specific) events - e.g. the 2022 floods, the 2023 currency "
-    "devaluation - are shown on the charts above but excluded from this table, which "
-    "covers global events only."
+    "Major globally-significant events with a plausible inflation channel. Temporal overlap is "
+    "context, not proof of causation. Domestic events (2022 floods, 2023 currency devaluation) "
+    "are shown on the charts above but excluded here - this table is global events only."
 )
 
-ge_rows = []
-labeled_names = {e["name"] for e in EVENTS if e.get("labeled_on_chart")}
-for e in global_events():
-    ge_rows.append(
-        {
-            "Global Event": e["name"],
-            "Start Date": e["start"].strftime("%b %Y"),
-            "End Date": "Ongoing" if e.get("is_ongoing") else e["end"].strftime("%b %Y"),
-            "Category": e["category"],
-            "Main Channels": ", ".join(e["channels"]),
-            "Potential Inflation Impact": e["description"],
-            "Shown on chart": "Labeled" if e["name"] in labeled_names else "Shaded (hover only)",
-        }
-    )
+ge_rows = [
+    {
+        "Global Event": e["name"],
+        "Start Date": e["start"].strftime("%b %Y"),
+        "End Date": "Ongoing" if e.get("is_ongoing") else e["end"].strftime("%b %Y"),
+        "Category": e["category"],
+        "Main Channels": ", ".join(e["channels"]),
+        "Potential Inflation Impact": e["description"],
+        "Shown on chart": "Yes" if e["core_chart_event"] else "No",
+    }
+    for e in global_events()
+]
 st.dataframe(pd.DataFrame(ge_rows), use_container_width=True, hide_index=True)
 
-with st.expander("Data coverage"):
+with st.expander("Other pages & data coverage"):
     st.write(
+        "**CPI Trends**, **Crop Production**, and **Data Explorer** are in the sidebar "
+        "(collapsed by default - click the `>>` at the top-left to open it).\n\n"
         f"- **Sources:** {', '.join(sorted(df['source'].unique()))}\n"
-        f"- **Variables:** {', '.join(sorted(df['variable'].unique()))}\n"
         f"- **Date range:** {df['date'].min().date()} → {df['date'].max().date()}\n"
-        f"- **Regions covered:** {df['region'].nunique()}\n\n"
-        "Retail commodity prices, weather, trade, fertilizer/diesel/electricity "
-        "prices, and wages are not loaded yet. Official CPI basket weights are also not "
-        "loaded - once added, 'Relative Magnitude' above can be replaced with a real "
-        "contribution percentage with no other UI changes needed."
+        f"- **Regions covered:** {df['region'].nunique()}"
     )

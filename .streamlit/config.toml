@@ -1,5 +1,7 @@
 [theme]
-primaryColor = "#0072B2"
+# Government-statistics-agency green (see dashboard/app.py's branding note -
+# this is a generic PBS-inspired scheme, not an official PBS color asset).
+primaryColor = "#0B6E4F"
 font = "sans serif"
 
 [browser]

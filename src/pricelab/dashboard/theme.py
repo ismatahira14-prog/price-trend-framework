@@ -84,15 +84,21 @@ MA_QUARTER_COLOR = "#009E73"  # bluish green - stepped calendar-quarter average
 EVENT_BAND_HUES: list[str] = OKABE_ITO
 
 # Horizontal inflation-MAGNITUDE bands (Deflation -> Very high, on the
-# combined MoM/YoY chart). This is a severity ramp (blue -> gray -> yellow ->
-# orange -> red), deliberately NOT the categorical Okabe-Ito set: it encodes
-# ordered magnitude, not category identity, so it gets a sequential-style
-# treatment instead. Kept very low-opacity so the MoM/YoY lines stay the
-# visual focus. Order matches config/analysis.yaml: inflation_bands.
+# combined MoM/YoY chart). A severity ramp (blue -> green -> yellow -> orange
+# -> red), deliberately NOT the categorical Okabe-Ito set: it encodes ordered
+# magnitude, not category identity. Opacity is deliberately higher than a
+# typical "background" tint so the 5 tiers stay visually distinguishable from
+# each other, while the two data lines (drawn on top, full opacity) still
+# read as the primary content. Order matches config/analysis.yaml: inflation_bands.
 INFLATION_BAND_FILLS: list[str] = [
-    "rgba(0,114,178,0.07)",    # Deflation - cool blue
-    "rgba(153,153,153,0.06)",  # Low inflation - neutral gray
-    "rgba(240,196,25,0.10)",   # Moderate inflation - yellow
-    "rgba(230,159,0,0.11)",    # High inflation - orange
-    "rgba(213,94,0,0.13)",     # Very high inflation - vermillion/red
+    "rgba(0,114,178,0.16)",   # Deflation - blue
+    "rgba(0,158,115,0.14)",   # Low inflation - green ("safe")
+    "rgba(240,196,25,0.20)",  # Moderate inflation - yellow
+    "rgba(230,159,0,0.22)",   # High inflation - orange
+    "rgba(213,94,0,0.24)",    # Very high inflation - red/vermillion
 ]
+
+# PBS-style header banner (see dashboard/app.py module docstring: this is a
+# generic government-statistics color scheme, not an official PBS asset).
+PBS_GREEN = "#0B6E4F"
+PBS_GREEN_DARK = "#054A34"

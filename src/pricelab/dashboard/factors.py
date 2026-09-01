@@ -6,15 +6,15 @@ Every event below is a widely-reported, publicly documented event (pandemic,
 war, shipping disruption, monetary-policy shift, commodity shock). We do NOT
 claim any of them caused a specific Pakistan CPI move - only that it was
 active during the shown window. See ``scope`` ("global" vs "domestic") and
-``labeled_on_chart`` for how each is used:
+``core_chart_event`` for how each is used:
 
-- Every event gets a shaded band + hover tooltip on the CPI chart (temporal
-  context).
-- Only a curated subset (``labeled_on_chart: True``) also gets a visible text
-  label on the chart, to avoid crowding - these are the ones most plausibly
-  time-aligned with a visible move in *this* CPI series.
-- Only ``scope == "global"`` events appear in the "Global Events" table.
-  ``scope == "domestic"`` events (Pakistan-specific) are chart-only.
+- Only ``core_chart_event: True`` events (the 4 most directly tied to a
+  visible move in this CPI series - COVID-19, the 2022 floods, the
+  Russia-Ukraine war, the 2023 currency devaluation) get a shaded band +
+  name-only hover tooltip on the CPI charts, to keep the charts readable.
+- ALL events (core or not) appear in the "Global Events" table below the
+  charts if ``scope == "global"``. ``scope == "domestic"`` events
+  (Pakistan-specific) are chart-only, never in that table.
 
 As of writing, two events are still ongoing (no real end date exists) - they
 are capped at the CPI data's last available month purely for drawing a
@@ -40,7 +40,7 @@ EVENTS: list[dict] = [
         "category": "Pandemic",
         "channels": ["Supply chains", "Labor markets", "Transport", "Demand"],
         "description": "Global pandemic lockdowns disrupted supply chains, transport, and demand worldwide.",
-        "labeled_on_chart": True,
+        "core_chart_event": True,
     },
     {
         "name": "Global Supply-Chain Disruption",
@@ -52,7 +52,7 @@ EVENTS: list[dict] = [
         "category": "Supply chain / Logistics",
         "channels": ["Shipping", "Manufacturing inputs", "Consumer goods"],
         "description": "Post-pandemic shipping bottlenecks and input shortages pushed up global goods prices.",
-        "labeled_on_chart": True,
+        "core_chart_event": False,
     },
     {
         "name": "Suez Canal Blockage (Ever Given)",
@@ -64,7 +64,7 @@ EVENTS: list[dict] = [
         "category": "Shipping / Logistics",
         "channels": ["Global shipping", "Container availability"],
         "description": "A six-day blockage of the Suez Canal delayed an estimated $9bn/day of trade and briefly disrupted global shipping schedules.",
-        "labeled_on_chart": False,
+        "core_chart_event": False,
     },
     {
         "name": "2020 Oil Price Crash",
@@ -76,7 +76,7 @@ EVENTS: list[dict] = [
         "category": "Energy shock (disinflationary)",
         "channels": ["Fuel", "Transport", "Energy"],
         "description": "Collapsing global travel demand crashed oil prices (WTI briefly traded negative) - a temporary DISinflationary pressure, unlike most events on this list.",
-        "labeled_on_chart": False,
+        "core_chart_event": False,
     },
     {
         "name": "Russia-Ukraine War",
@@ -88,7 +88,7 @@ EVENTS: list[dict] = [
         "category": "Geopolitical conflict / War",
         "channels": ["Energy", "Food", "Fertilizer", "Freight"],
         "description": "War-driven spikes in global energy, food, and fertilizer prices. The chart band shows the acute 2022-2023 commodity-shock phase; the conflict itself is ongoing.",
-        "labeled_on_chart": True,
+        "core_chart_event": True,
     },
     {
         "name": "China Zero-COVID Policy & Lockdowns",
@@ -100,7 +100,7 @@ EVENTS: list[dict] = [
         "category": "Supply chain / Pandemic policy",
         "channels": ["Manufacturing", "Electronics", "Global supply chains"],
         "description": "Extended lockdowns in major Chinese manufacturing hubs added further strain to global supply chains.",
-        "labeled_on_chart": False,
+        "core_chart_event": False,
     },
     {
         "name": "2022 Pakistan Floods",
@@ -112,7 +112,7 @@ EVENTS: list[dict] = [
         "category": "Climate / domestic supply shock",
         "channels": ["Food (crops)", "Infrastructure", "Transport"],
         "description": "Catastrophic floods damaged crops and infrastructure, disrupting domestic food supply. Pakistan-specific, not a global event.",
-        "labeled_on_chart": True,
+        "core_chart_event": True,
     },
     {
         "name": "Global Fertilizer Price Shock",
@@ -124,7 +124,7 @@ EVENTS: list[dict] = [
         "category": "Commodity shock",
         "channels": ["Fertilizer", "Agriculture", "Food production costs"],
         "description": "Natural-gas price spikes (compounded by the war in Ukraine, a major fertilizer exporter) drove global fertilizer prices sharply higher, raising farm input costs.",
-        "labeled_on_chart": False,
+        "core_chart_event": False,
     },
     {
         "name": "US Federal Reserve Rapid Rate Hikes",
@@ -136,7 +136,7 @@ EVENTS: list[dict] = [
         "category": "Monetary policy",
         "channels": ["Exchange rates", "Import costs", "Capital flows"],
         "description": "One of the fastest US rate-hike cycles in decades strengthened the US dollar, raising import and debt-servicing costs for import-reliant, dollar-borrowing economies.",
-        "labeled_on_chart": False,
+        "core_chart_event": False,
     },
     {
         "name": "Currency Devaluation & Energy Price Reform",
@@ -148,7 +148,7 @@ EVENTS: list[dict] = [
         "category": "Monetary / fiscal policy",
         "channels": ["Fuel", "Electricity", "Imports"],
         "description": "IMF-program currency depreciation and fuel/energy price adjustments drove Pakistan's CPI to record highs. Pakistan-specific, not a global event.",
-        "labeled_on_chart": True,
+        "core_chart_event": True,
     },
     {
         "name": "Red Sea Shipping Disruptions",
@@ -160,7 +160,7 @@ EVENTS: list[dict] = [
         "category": "Shipping / Logistics",
         "channels": ["Global shipping", "Freight costs", "Suez route diversions"],
         "description": "Attacks on Red Sea shipping forced vessels onto longer routes around Africa, raising freight costs and transit times.",
-        "labeled_on_chart": False,
+        "core_chart_event": False,
     },
 ]
 
