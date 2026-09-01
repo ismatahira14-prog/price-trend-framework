@@ -18,7 +18,9 @@ from pricelab.dashboard.theme import (  # noqa: E402
     MAX_SERIES,
 )
 
-st.set_page_config(page_title="CPI Trends", page_icon="📈", layout="wide")
+st.set_page_config(
+    page_title="CPI Trends", page_icon="📈", layout="wide", initial_sidebar_state="collapsed"
+)
 st.title("CPI Trends by group")
 st.caption("Answers WHAT changed and WHEN, for the monthly CPI index (2015-16 = 100).")
 

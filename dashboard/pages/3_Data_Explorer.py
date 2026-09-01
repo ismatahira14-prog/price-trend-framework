@@ -11,7 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from pricelab.dashboard.data import load_master_long  # noqa: E402
 
-st.set_page_config(page_title="Data Explorer", page_icon="🔎", layout="wide")
+st.set_page_config(
+    page_title="Data Explorer", page_icon="🔎", layout="wide", initial_sidebar_state="collapsed"
+)
 st.title("Data Explorer")
 st.caption("Browse master_long directly - the same table as data/processed/master_long.csv.")
 

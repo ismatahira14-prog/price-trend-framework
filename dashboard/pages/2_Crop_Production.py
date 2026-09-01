@@ -13,7 +13,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 from pricelab.dashboard.data import crop_slice, crop_variants, load_master_long  # noqa: E402
 from pricelab.dashboard.theme import HIGHLIGHT_HUE, SEQUENTIAL_HUE  # noqa: E402
 
-st.set_page_config(page_title="Crop Production", page_icon="🌾", layout="wide")
+st.set_page_config(
+    page_title="Crop Production", page_icon="🌾", layout="wide", initial_sidebar_state="collapsed"
+)
 st.title("Crop production by district")
 st.caption("Answers WHERE the largest supply changes are, for annual crop-year data.")
 

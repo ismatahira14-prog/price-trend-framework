@@ -19,7 +19,7 @@ next, and **WHAT** decision-makers can do about it.
 | Collection + Integration + light Cleaning | `pricelab.ingestion`, `pricelab.integration` | **done** (this repo) |
 | Storage (SQL Server + DuckDB snapshot) | `pricelab.integration.sql_export`, `.duckdb_export` | **done** |
 | Visualization (web dashboard) | `dashboard/` (Streamlit) | **done**, basic pages |
-| Spike & factor analysis (Home page) | `pricelab.dashboard.factors` | **done**, events real / factor breakdown is placeholder data (see below) |
+| Spike & factor analysis (Home page) | `pricelab.dashboard.factors` | **done**, entirely real data - events, and the 12-group breakdown (see below) |
 | EDA, Events, Spatial, Factors, Forecasting, Uncertainty, Decision | — | planned (see `.claude/plans/`) |
 
 Current output: a single tidy-long fact table (`data/processed/master_long.{parquet,csv,xlsx}`),
@@ -112,34 +112,42 @@ Opens `http://localhost:8501` with 4 pages: **Home** (spike & factor analysis - 
 area/production/yield), **Data Explorer** (filter + download `master_long`). It reads only the
 DuckDB snapshot - never SQL Server - so it works identically once deployed.
 
+**Sidebar:** collapsed by default on every page (`initial_sidebar_state="collapsed"`) - click the
+small `>>` control at the top-left to open it and reach the other 3 pages; the dashboard content
+uses the freed-up width by default.
+
 ### Home page: spike & factor analysis
 
 The Home page is the main analytical view - one continuous flow from "what happened" to "what
-caused it":
+caused it", entirely with real PBS CPI data (no mock numbers anywhere on this page):
 
 1. **KPI row** - latest CPI, MoM %, YoY %, and the highest YoY inflation ever recorded (with date).
-2. **General CPI over time** - three tabs sharing the same timeline:
-   - *Index & moving averages*: CPI plus 3-month / 6-month rolling averages and a stepped
+2. **Side-by-side charts**, sharing height/typography/tooltip behavior (`hovermode="x"` on both):
+   - *Left - Index & moving averages*: CPI plus 3-month / 6-month rolling averages and a stepped
      calendar-quarter average (kept as one chart since they share the index unit).
-   - *Month-over-month change*: a %, colored by direction (rising = vermillion, falling = blue).
-   - *Year-over-year change*: same idea, one year apart.
+   - *Right - Month-to-Month & Year-to-Year inflation*: one combined chart, MoM % and YoY % as two
+     lines, with a bold zero line and 5 horizontal **inflation-magnitude bands** (Deflation / Low /
+     Moderate / High / Very high) - thresholds live in `config/analysis.yaml: inflation_bands`, not
+     hard-coded in the chart.
 
-   All three carry shaded bands for real, dated macro events (COVID-19, the global supply-chain
-   disruption, the Russia-Ukraine war, the 2022 Pakistan floods, the 2023 currency-devaluation /
-   energy-price shock) - hover a band for a short explanation, see `pricelab.dashboard.factors.EVENTS`
-   for sources/dates.
-3. **Click any point** on any of the three charts (or use the manual period picker) -> the page
-   scrolls to **"What caused the inflation spike?"**, which shows that period's CPI/MoM/YoY and any
-   overlapping event.
-4. **Factor contribution chart + two tables** (month-by-month, year-by-year) show which categories
-   (Food, Transport, Housing, Health, Other) supposedly drove that period's change, with the
-   selected row highlighted.
-
-**Important:** step 4's numbers are placeholder data - see the "🧪 demo data" captions on the page
-and the module docstring in `src/pricelab/dashboard/factors.py`. There is no per-item weighted CPI
-contribution source ingested yet. The events in step 2 are real; the contribution percentages in
-step 4 are not. Swapping in real data means replacing the two `generate_mock_*` functions in that
-one file - the chart/table/interaction code in `dashboard/app.py` doesn't need to change.
+   Both charts carry shaded bands for the same list of dated events (`pricelab.dashboard.factors.EVENTS`)
+   - hover a band for a short explanation. Only a curated subset gets a visible text label (to avoid
+   crowding 11 events onto one chart); every event is still shaded + hoverable.
+3. **Click any point** on either chart (or use the manual period picker) -> the page scrolls to
+   **"What caused the inflation spike?"**, which shows that period's CPI/MoM/YoY and any overlapping
+   event (with an explicit "context, not causation" note).
+4. **Real 12-CPI-group breakdown** for the selected month - a ranked bar chart plus a table with
+   each group's actual MoM %/YoY % and a **Relative Magnitude** rank (High/Medium/Low = 1st-4th /
+   5th-8th / 9th-12th largest mover that month). This is a real, computed ranking - **not** an
+   official basket-weight contribution percentage, which this project's data does not include (the
+   page says so explicitly rather than fabricating one).
+5. **Two full archive tables** (month-by-month, year-by-year), same real per-group data, selected
+   period highlighted.
+6. **Global Events table** - ~9 well-documented global events (pandemics, wars, shipping
+   disruptions, monetary-policy shifts, commodity shocks) with start/end dates (`"Ongoing"` where
+   there's no real end date), category, transmission channels, and whether each is labeled/shaded
+   on the charts above. Domestic (Pakistan-specific) events - the 2022 floods, the 2023 currency
+   devaluation - are shown on the charts but excluded from this table on purpose.
 
 ### Deploying it publicly (Streamlit Community Cloud - free)
 
@@ -202,7 +210,7 @@ src/pricelab/
   integration/     harmonize keys, build master_long, write report,
                    sql_export.py (local SQL Server), duckdb_export.py (snapshot)
   dashboard/       data.py (duckdb reads), theme.py (chart colors),
-                   factors.py (real events + MOCK per-item contributions)
+                   factors.py (real dated events, inflation-band config, ranking helper)
   ingest.py        CLI: python -m pricelab.ingest
 dashboard/         Streamlit app: app.py (home) + pages/ (CPI Trends, Crop
                    Production, Data Explorer) - this is what gets deployed

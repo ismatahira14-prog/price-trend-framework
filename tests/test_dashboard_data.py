@@ -7,10 +7,17 @@ from pricelab.dashboard.data import (
     cpi_series,
     crop_slice,
     crop_variants,
+    group_change_table,
     latest_change_table,
     load_master_long,
+    selected_period_group_table,
+    with_relative_magnitude,
+    yearly_group_change_table,
 )
+from pricelab.dashboard.theme import CPI_GROUP_ORDER
 from pricelab.integration.duckdb_export import snapshot_path
+
+GROUPS_12 = CPI_GROUP_ORDER[1:]
 
 
 @pytest.fixture(scope="module")
@@ -59,3 +66,37 @@ def test_crop_helpers(snapshot_df):
     sub = crop_slice(snapshot_df, "Wheat", "crop_production")
     assert (sub["commodity"] == "Wheat").all()
     assert sub["value"].is_monotonic_decreasing
+
+
+@pytest.fixture(scope="module")
+def group_long(snapshot_df):
+    return group_change_table(snapshot_df, GROUPS_12)
+
+
+def test_group_change_table_covers_all_12_real_groups(group_long):
+    assert set(group_long["group"]) == set(GROUPS_12)
+    assert "General" not in set(group_long["group"])  # General is the aggregate, not a "group"
+
+
+def test_with_relative_magnitude_ranks_within_each_date(group_long):
+    ranked = with_relative_magnitude(group_long.dropna(subset=["mom_pct"]), group_col="date")
+    assert {"rank", "relative_magnitude"} <= set(ranked.columns)
+    one_month = ranked[ranked["date"] == ranked["date"].iloc[-1]]
+    assert sorted(one_month["rank"].dropna()) == list(range(1, len(one_month) + 1))
+    assert set(one_month["relative_magnitude"]) <= {"High", "Medium", "Low"}
+
+
+def test_selected_period_group_table_is_ranked_by_abs_mom(group_long):
+    date = group_long["date"].max()
+    period = selected_period_group_table(group_long, date)
+    assert len(period) == len(GROUPS_12)
+    assert period["rank"].tolist() == sorted(period["rank"].tolist())
+    abs_vals = period["mom_pct"].abs().tolist()
+    assert abs_vals == sorted(abs_vals, reverse=True)
+
+
+def test_yearly_group_change_table_is_ranked_per_year(group_long):
+    yearly = yearly_group_change_table(group_long)
+    assert {"year", "group", "mom_pct", "yoy_pct", "relative_magnitude"} <= set(yearly.columns)
+    one_year = yearly[yearly["year"] == yearly["year"].max()]
+    assert set(one_year["relative_magnitude"]) <= {"High", "Medium", "Low"}

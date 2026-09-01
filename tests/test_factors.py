@@ -1,30 +1,22 @@
 import pandas as pd
-import pytest
 
-from pricelab.dashboard.data import cpi_change_table
 from pricelab.dashboard.factors import (
     EVENTS,
-    classify_impact,
+    classify_relative_magnitude,
     events_covering,
-    generate_mock_monthly_factors,
-    generate_mock_yearly_factors,
+    global_events,
+    load_inflation_bands,
 )
-from pricelab.dashboard.theme import FACTOR_ORDER
 
 
-@pytest.fixture
-def change_table():
-    idx = pd.date_range("2018-01-01", "2024-12-01", freq="MS")
-    # a smooth-ish upward series so pct_change/rolling all produce real numbers
-    values = 100 + pd.Series(range(len(idx))) * 0.8
-    return cpi_change_table(pd.Series(values.values, index=idx))
-
-
-def test_events_are_dated_and_ordered():
-    assert len(EVENTS) >= 3
+def test_events_are_dated_and_tagged():
+    assert len(EVENTS) >= 8  # a real, thorough list - not just 2-3 examples
     for e in EVENTS:
         assert e["start"] < e["end"]
         assert e["color"]
+        assert e["scope"] in {"global", "domestic"}
+        assert isinstance(e["channels"], list) and e["channels"]
+        assert isinstance(e.get("labeled_on_chart"), bool)
 
 
 def test_events_covering_finds_known_event():
@@ -33,24 +25,32 @@ def test_events_covering_finds_known_event():
     assert "COVID-19 Pandemic" in names
 
 
-def test_classify_impact_thresholds():
-    assert classify_impact(30) == "High"
-    assert classify_impact(15) == "Medium"
-    assert classify_impact(5) == "Low"
+def test_global_events_excludes_domestic():
+    names = {e["name"] for e in global_events()}
+    assert "Russia-Ukraine War" in names
+    assert "2022 Pakistan Floods" not in names  # domestic, not global
+    assert "Currency Devaluation & Energy Price Reform" not in names
 
 
-def test_monthly_factors_sum_to_100_and_are_deterministic(change_table):
-    a = generate_mock_monthly_factors(change_table)
-    b = generate_mock_monthly_factors(change_table)
-    pd.testing.assert_frame_equal(a, b)  # same seed -> identical mock output
-
-    assert set(a["factor"].unique()) == set(FACTOR_ORDER)
-    totals = a.groupby("month")["contribution_pct"].sum()
-    assert (totals.round(0) == 100).all()
+def test_ongoing_events_have_a_true_flag():
+    ongoing = [e for e in EVENTS if e["is_ongoing"]]
+    assert any(e["name"] == "Russia-Ukraine War" for e in ongoing)
 
 
-def test_yearly_factors_keyed_by_calendar_year(change_table):
-    y = generate_mock_yearly_factors(change_table)
-    assert set(y["year"]) <= set(change_table.index.year)
-    totals = y.groupby("year")["contribution_pct"].sum()
-    assert (totals.round(0) == 100).all()
+def test_classify_relative_magnitude_tiers_by_rank_fraction():
+    assert classify_relative_magnitude(1, 12) == "High"
+    assert classify_relative_magnitude(4, 12) == "High"
+    assert classify_relative_magnitude(5, 12) == "Medium"
+    assert classify_relative_magnitude(8, 12) == "Medium"
+    assert classify_relative_magnitude(9, 12) == "Low"
+    assert classify_relative_magnitude(12, 12) == "Low"
+
+
+def test_inflation_bands_are_config_driven_not_hardcoded():
+    bands = load_inflation_bands()
+    labels = [b["label"] for b in bands]
+    assert "Deflation" in labels
+    assert "Very high inflation" in labels
+    deflation = next(b for b in bands if b["label"] == "Deflation")
+    assert deflation["max"] == 0
+    assert deflation["min"] is None  # unbounded on the low end

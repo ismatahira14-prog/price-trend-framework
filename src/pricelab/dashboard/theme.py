@@ -78,24 +78,21 @@ MA_3M_COLOR = "#56B4E9"  # sky blue - light, short-window
 MA_6M_COLOR = "#CC79A7"  # reddish purple - medium window
 MA_QUARTER_COLOR = "#009E73"  # bluish green - stepped calendar-quarter average
 
-# Contributing-factor identity: reuse CPI_COLORS so "Transport" is the same
-# color here as on the CPI Trends page. "Other" isn't a CPI group, so it gets
-# one more fixed Okabe-Ito slot not already claimed by the default factors.
-FACTOR_ORDER: list[str] = [
-    "Food & Non-Alcoholic Beverages",
-    "Transport",
-    "Housing, Water, Electricity, Gas & Fuels",
-    "Health",
-    "Other",
+# One fixed, low-opacity fill per event band. Cycles through all 8 Okabe-Ito
+# hues (there are more dated events than colors, so a little reuse across
+# non-adjacent events is fine - each band is independently hoverable/labeled).
+EVENT_BAND_HUES: list[str] = OKABE_ITO
+
+# Horizontal inflation-MAGNITUDE bands (Deflation -> Very high, on the
+# combined MoM/YoY chart). This is a severity ramp (blue -> gray -> yellow ->
+# orange -> red), deliberately NOT the categorical Okabe-Ito set: it encodes
+# ordered magnitude, not category identity, so it gets a sequential-style
+# treatment instead. Kept very low-opacity so the MoM/YoY lines stay the
+# visual focus. Order matches config/analysis.yaml: inflation_bands.
+INFLATION_BAND_FILLS: list[str] = [
+    "rgba(0,114,178,0.07)",    # Deflation - cool blue
+    "rgba(153,153,153,0.06)",  # Low inflation - neutral gray
+    "rgba(240,196,25,0.10)",   # Moderate inflation - yellow
+    "rgba(230,159,0,0.11)",    # High inflation - orange
+    "rgba(213,94,0,0.13)",     # Very high inflation - vermillion/red
 ]
-FACTOR_COLORS: dict[str, str] = {**CPI_COLORS, "Other": OKABE_ITO[6]}
-
-IMPACT_COLORS = {
-    "High": HIGHLIGHT_HUE,
-    "Medium": "#E69F00",
-    "Low": "#888888",
-}
-
-# One fixed, low-opacity fill per event band, drawn from the same categorical
-# set so events never clash with the increase/decrease or factor colors.
-EVENT_BAND_HUES: list[str] = [OKABE_ITO[i] for i in (0, 1, 2, 3, 5)]

@@ -23,3 +23,25 @@ factors:
   max_lag_months: 12
 events:
   min_segment_months: 6
+
+# Horizontal YoY-inflation magnitude bands drawn on the dashboard's combined
+# MoM/YoY chart. These are a common illustrative convention (roughly: an
+# inflation-targeting "low" band, then moderate/high/very-high tiers) - NOT
+# an official PBS/SBP classification. Edit freely; the chart reads this list,
+# nothing is hard-coded in the chart code. `max: null` means "no upper bound".
+inflation_bands:
+  - label: "Deflation"
+    min: null
+    max: 0
+  - label: "Low inflation"
+    min: 0
+    max: 3
+  - label: "Moderate inflation"
+    min: 3
+    max: 7
+  - label: "High inflation"
+    min: 7
+    max: 15
+  - label: "Very high inflation"
+    min: 15
+    max: null
