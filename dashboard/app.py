@@ -200,35 +200,43 @@ def _add_inflation_bands(fig: go.Figure, y_lo: float, y_hi: float) -> None:
             )
 
 
-def _add_click_catcher(fig: go.Figure, dates, y_value: float) -> None:
-    """One invisible marker per date, so every month is individually clickable.
+def _add_click_catcher(fig: go.Figure, dates, y_lo: float, y_hi: float, n_levels: int = 9) -> None:
+    """A grid of invisible markers (every date x N vertical levels), so every
+    point on the chart is individually clickable - including far below zero.
 
-    History of getting this right (verified live with Playwright, not just
-    inferred - Plotly's docs don't spell this out clearly):
+    History of getting this right (verified live with Playwright at each
+    step, not just inferred - Plotly's behavior here isn't obvious from the
+    docs alone):
 
     1. First attempt used an invisible full-height ``go.Bar`` on a hidden
        secondary axis. ``hoverinfo="skip"`` on it turned out to exclude the
        trace from Plotly's hover/click/selection system ENTIRELY - so
-       on_select's `points` was always empty. Fixed by using
-       ``hoverinfo="none"`` instead (suppresses the tooltip, keeps the trace
-       participating in events).
+       on_select's `points` was always empty. Fixed with ``hoverinfo="none"``.
     2. That fixed `plotly_click`, but `plotly_selected` (what Streamlit's
        `on_select` actually reads) still came back empty - bar traces don't
        support Plotly's click-to-select-a-single-point behavior at all, only
-       box/lasso drag-select. Fixed by switching to an invisible
-       ``go.Scatter(mode="markers")`` trace instead, the trace type Plotly's
-       single-click selection is actually built for.
-
-    The line/bar traces underneath don't need markers themselves:
-    ``hovermode="x"`` (set in `_base_layout`) makes a click anywhere in a
-    month's column register against every trace at that x, including this
-    one, regardless of how far the invisible marker's y-value is from the
-    click.
+       box/lasso drag-select. Switched to ``go.Scatter(mode="markers")``,
+       the trace type single-click selection is actually built for.
+    3. A single marker per date (at one fixed y, e.g. the series midpoint)
+       worked for clicks near that y, but NOT for clicks far from it (e.g.
+       the deep-negative/"decrease" portion of a chart whose other series
+       swings far positive) - Plotly's click-to-select still needs the
+       marker within its hover distance, `hovermode="x"` widening the HOVER
+       tooltip's x-collection doesn't extend that. Fixed by placing a whole
+       COLUMN of markers (`n_levels`, evenly spaced y_lo..y_hi) at every
+       date, so a click anywhere vertically lands near one.
     """
+    xs: list = []
+    ys: list[float] = []
+    span = (y_hi - y_lo) or 1.0
+    for i in range(n_levels):
+        level = y_lo + span * i / (n_levels - 1)
+        xs.extend(dates)
+        ys.extend([level] * len(dates))
     fig.add_trace(
         go.Scatter(
-            x=dates,
-            y=[y_value] * len(dates),
+            x=xs,
+            y=ys,
             mode="markers",
             marker=dict(size=1, opacity=0),
             hoverinfo="none",
@@ -380,7 +388,7 @@ with col_left:
         )
     )
     n_rows_l = _add_event_bands(fig, hover_y=ct["cpi"].max() * 1.03, x_min=x_min, x_max=x_max)
-    _add_click_catcher(fig, ct.index, ct["cpi"].median())
+    _add_click_catcher(fig, ct.index, ct["cpi"].min(), ct["cpi"].max())
     _base_layout(fig, "Index (2015-16 = 100)", event_rows=n_rows_l)
     ev_index = st.plotly_chart(
         fig, use_container_width=True, on_select="rerun", key="chart_index", selection_mode="points"
@@ -412,7 +420,7 @@ with col_right:
         )
     )
     n_rows_r = _add_event_bands(fig, hover_y=y_hi * 0.92, x_min=x_min, x_max=x_max)
-    _add_click_catcher(fig, ct.index, (y_lo + y_hi) / 2)
+    _add_click_catcher(fig, ct.index, y_lo, y_hi)
     _base_layout(fig, "Change (%)", event_rows=n_rows_r, right_margin=95, y_range=[y_lo, y_hi])
     ev_combined = st.plotly_chart(
         fig, use_container_width=True, on_select="rerun", key="chart_combined", selection_mode="points"
