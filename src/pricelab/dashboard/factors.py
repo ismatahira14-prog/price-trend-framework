@@ -169,10 +169,22 @@ EVENTS: list[dict] = [
 # needs to be "far enough in the future", never today's wall-clock date.
 _ONGOING_SENTINEL = pd.Timestamp("2099-12-31")
 
+# The 4 events actually drawn on the charts (core_chart_event=True) each get
+# one hand-picked, maximally-distinct color instead of whatever falls out of
+# cycling through all 11 events - so at a glance, color reliably identifies
+# which of the four you're looking at. The other 7 never render on a chart,
+# so their cycled color (below) is never seen and doesn't need to be distinct.
+_CORE_EVENT_COLORS = {
+    "COVID-19 Pandemic": "#0072B2",  # blue
+    "2022 Pakistan Floods": "#009E73",  # bluish green
+    "Russia-Ukraine War": "#CC79A7",  # reddish purple
+    "Currency Devaluation & Energy Price Reform": "#E69F00",  # orange
+}
+
 for _i, _e in enumerate(EVENTS):
     _e["start"] = pd.Timestamp(_e["start"])
     _e["end"] = pd.Timestamp(_e["end"]) if _e["end"] else _ONGOING_SENTINEL
-    _e["color"] = EVENT_BAND_HUES[_i % len(EVENT_BAND_HUES)]
+    _e["color"] = _CORE_EVENT_COLORS.get(_e["name"], EVENT_BAND_HUES[_i % len(EVENT_BAND_HUES)])
 
 
 def events_covering(date: pd.Timestamp) -> list[dict]:

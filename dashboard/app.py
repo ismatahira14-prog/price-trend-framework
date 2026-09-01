@@ -10,14 +10,12 @@ REAL (the actual PBS CPI series for each of the 12 COICOP groups - see
 computed rank among the 12 groups that period, NOT an official basket-weight
 contribution percentage (this project's data has no official CPI weights).
 
-NOTE ON BRANDING: the header badge below is a generic, clearly-not-official
-placeholder - not the real Pakistan Bureau of Statistics emblem. Swap in the
-genuine logo (as a local image passed to `st.image`) if/when you have rights
-to use it; don't want this project to look like an official PBS product.
+The header banner embeds `dashboard/pbs_logo.jpg` (user-supplied).
 """
 
 from __future__ import annotations
 
+import base64
 import sys
 from pathlib import Path
 
@@ -152,7 +150,7 @@ def _add_event_bands(fig: go.Figure, hover_y: float, x_min, x_max) -> int:
         if start >= end:
             continue
         fig.add_vrect(
-            x0=start, x1=end, fillcolor=e["color"], opacity=0.12, line_width=0, layer="below"
+            x0=start, x1=end, fillcolor=e["color"], opacity=0.22, line_width=0, layer="below"
         )
         fig.add_annotation(
             x=start,
@@ -260,15 +258,27 @@ def _base_layout(
 
 
 # ------------------------------------------------------------------------- #
-# Header (PBS-style banner - see the module docstring's branding note)
+# Header (PBS-style banner with the real logo)
 # ------------------------------------------------------------------------- #
+_logo_path = Path(__file__).parent / "pbs_logo.jpg"
+_logo_html = (
+    f'<img class="logo" src="data:image/jpeg;base64,'
+    f'{base64.b64encode(_logo_path.read_bytes()).decode()}"/>'
+    if _logo_path.is_file()
+    else '<div class="badge">PBS</div>'
+)
+
 st.markdown(
     f"""
     <style>
     .pbs-header {{
         background: linear-gradient(90deg, {PBS_GREEN_DARK}, {PBS_GREEN});
-        color: white; padding: 16px 22px; border-radius: 8px;
-        display: flex; align-items: center; gap: 14px; margin-bottom: 8px;
+        color: white; padding: 14px 22px; border-radius: 8px;
+        display: flex; align-items: center; gap: 16px; margin-bottom: 8px;
+    }}
+    .pbs-header .logo {{
+        background: white; border-radius: 6px; padding: 6px;
+        height: 52px; flex-shrink: 0;
     }}
     .pbs-header .badge {{
         background: white; color: {PBS_GREEN_DARK}; font-weight: 700;
@@ -279,7 +289,7 @@ st.markdown(
     .pbs-header p {{ margin: 2px 0 0; font-size: 0.82rem; opacity: 0.92; }}
     </style>
     <div class="pbs-header">
-        <div class="badge">PBS</div>
+        {_logo_html}
         <div>
             <h1>Price Trend Framework</h1>
             <p>Pakistan Consumer Price Index · Statistical Dashboard</p>
@@ -402,10 +412,16 @@ with col_right:
     )
     _register_click(ev_combined, "chart_combined", ct)
 
-st.caption(
-    "Click a point on either chart to see what caused that spike ↓ · shaded bands = major events, "
-    "colored horizontal bands = inflation severity."
+_legend_chips = "".join(
+    f'<span style="display:inline-flex;align-items:center;gap:5px;margin-right:16px;font-size:0.82rem;">'
+    f'<span style="width:12px;height:12px;border-radius:3px;background:{e["color"]};'
+    f'display:inline-block;"></span>{e.get("short_name", e["name"])}</span>'
+    for e in CORE_EVENTS
 )
+st.markdown(
+    f'<div style="margin:2px 0 10px;">{_legend_chips}</div>', unsafe_allow_html=True
+)
+st.caption("Click a point on either chart to see what caused that spike ↓")
 
 st.divider()
 
