@@ -338,10 +338,10 @@ peak_yoy_val = ct["yoy_pct"].max() if peak_yoy_date is not None else None
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Latest General CPI", f"{latest['cpi']:.1f}", help="Base: 2015-16 = 100")
 c2.metric(
-    "Month-over-month", f"{latest['mom_pct']:+.2f}%" if pd.notna(latest["mom_pct"]) else "n/a"
+    "Month-over-month", f"{latest['mom_pct']:+.1f}%" if pd.notna(latest["mom_pct"]) else "n/a"
 )
 c3.metric(
-    "Year-over-year", f"{latest['yoy_pct']:+.2f}%" if pd.notna(latest["yoy_pct"]) else "n/a"
+    "Year-over-year", f"{latest['yoy_pct']:+.1f}%" if pd.notna(latest["yoy_pct"]) else "n/a"
 )
 c4.metric(
     "Highest recorded inflation (YoY)",
@@ -409,14 +409,14 @@ with col_right:
         go.Scatter(
             x=ct.index, y=ct["mom_pct"], mode="lines", name="Month-over-month (%)",
             line=dict(color=SEQUENTIAL_HUE, width=2),
-            hovertemplate="%{x|%b %Y}<br>MoM: %{y:+.2f}%<extra></extra>",
+            hovertemplate="%{x|%b %Y}<br>MoM: %{y:+.1f}%<extra></extra>",
         )
     )
     fig.add_trace(
         go.Scatter(
             x=ct.index, y=ct["yoy_pct"], mode="lines", name="Year-over-year (%)",
             line=dict(color=HIGHLIGHT_HUE, width=2.5),
-            hovertemplate="%{x|%b %Y}<br>YoY: %{y:+.2f}%<extra></extra>",
+            hovertemplate="%{x|%b %Y}<br>YoY: %{y:+.1f}%<extra></extra>",
         )
     )
     n_rows_r = _add_event_bands(fig, hover_y=y_hi * 0.92, x_min=x_min, x_max=x_max)
@@ -478,8 +478,8 @@ active_events = events_covering(selected)
 st.markdown(f"**Selected period: {selected:%B %Y}**")
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("General CPI", f"{row['cpi']:.1f}")
-m2.metric("General MoM", f"{row['mom_pct']:+.2f}%" if pd.notna(row["mom_pct"]) else "n/a")
-m3.metric("General YoY", f"{row['yoy_pct']:+.2f}%" if pd.notna(row["yoy_pct"]) else "n/a")
+m2.metric("General MoM", f"{row['mom_pct']:+.1f}%" if pd.notna(row["mom_pct"]) else "n/a")
+m3.metric("General YoY", f"{row['yoy_pct']:+.1f}%" if pd.notna(row["yoy_pct"]) else "n/a")
 m4.metric("Event active", active_events[0]["name"] if active_events else "None on record")
 if active_events:
     st.caption(
@@ -501,7 +501,7 @@ if not period_groups.empty:
             ],
             text=[f"{v:+.1f}%" for v in sorted_for_chart["mom_pct"]],
             textposition="outside",
-            hovertemplate="%{y}<br>MoM: %{x:+.2f}%<extra></extra>",
+            hovertemplate="%{y}<br>MoM: %{x:+.1f}%<extra></extra>",
         )
     )
     fig.update_layout(
@@ -521,7 +521,15 @@ if not period_groups.empty:
             "relative_magnitude": "Relative Magnitude",
         }
     )
-    st.dataframe(display, use_container_width=True, hide_index=True)
+    st.dataframe(
+        display,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Month-to-Month Change (%)": st.column_config.NumberColumn(format="%.1f"),
+            "Year-to-Year Change (%)": st.column_config.NumberColumn(format="%.1f"),
+        },
+    )
     st.caption(f"{SOURCE_NOTE}. Relative Magnitude = rank among the 12 groups that month, not an official weight.")
 else:
     st.warning("No per-group data available for this period yet.")
@@ -553,7 +561,9 @@ monthly_display = monthly_ranked[
     }
 )
 st.dataframe(
-    monthly_display.style.apply(_highlight_month, axis=1),
+    monthly_display.style.apply(_highlight_month, axis=1).format(
+        {"Month-to-Month Change (%)": "{:.1f}", "Year-to-Year Change (%)": "{:.1f}"}
+    ),
     use_container_width=True,
     height=320,
 )
@@ -581,7 +591,9 @@ yearly_display = yearly_ranked[["year", "group", "mom_pct", "yoy_pct", "relative
     }
 )
 st.dataframe(
-    yearly_display.style.apply(_highlight_year, axis=1),
+    yearly_display.style.apply(_highlight_year, axis=1).format(
+        {"Avg Month-to-Month Change (%)": "{:.1f}", "Avg Year-to-Year Change (%)": "{:.1f}"}
+    ),
     use_container_width=True,
     height=320,
 )
