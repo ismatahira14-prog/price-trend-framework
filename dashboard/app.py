@@ -260,9 +260,9 @@ def _base_layout(
 # ------------------------------------------------------------------------- #
 # Header (PBS-style banner with the real logo)
 # ------------------------------------------------------------------------- #
-_logo_path = Path(__file__).parent / "pbs_logo.jpg"
+_logo_path = Path(__file__).parent / "pbs_logo_trimmed.png"
 _logo_html = (
-    f'<img class="logo" src="data:image/jpeg;base64,'
+    f'<img class="logo" src="data:image/png;base64,'
     f'{base64.b64encode(_logo_path.read_bytes()).decode()}"/>'
     if _logo_path.is_file()
     else '<div class="badge">PBS</div>'
@@ -277,8 +277,7 @@ st.markdown(
         display: flex; align-items: center; gap: 16px; margin-bottom: 8px;
     }}
     .pbs-header .logo {{
-        background: white; border-radius: 6px; padding: 6px;
-        height: 52px; flex-shrink: 0;
+        height: 96px; flex-shrink: 0;
     }}
     .pbs-header .badge {{
         background: white; color: {PBS_GREEN_DARK}; font-weight: 700;
