@@ -49,8 +49,6 @@ from pricelab.dashboard.theme import (  # noqa: E402
     HIGHLIGHT_HUE,
     INCREASE_COLOR,
     INFLATION_BAND_FILLS,
-    MA_3M_COLOR,
-    MA_6M_COLOR,
     MA_QUARTER_COLOR,
     PBS_GREEN,
     PBS_GREEN_DARK,
@@ -268,11 +266,13 @@ def _base_layout(
     y_range: list[float] | None = None,
     y_tickformat: str | None = None,
     yaxis2_title: str | None = None,
+    yaxis2_range: list[float] | None = None,
 ) -> None:
     # Vertical event labels need real headroom above the plot (their text runs
-    # upward, not sideways) - 130px comfortably fits the longest short_name;
-    # +20px per extra row for genuinely overlapping labeled events.
-    top_margin = 130 + 20 * max(event_rows - 1, 0)
+    # upward, not sideways) - but only reserve it when there ARE labeled rows;
+    # with bands off (event_rows=0) a flat 30px keeps the chart from floating
+    # in ~130px of dead white space above it.
+    top_margin = 30 if event_rows == 0 else 130 + 20 * max(event_rows - 1, 0)
     yaxis_cfg = dict(showgrid=True, gridcolor="rgba(128,128,128,0.15)")
     if y_range is not None:
         yaxis_cfg["range"] = y_range
@@ -290,9 +290,17 @@ def _base_layout(
         hovermode="x",
     )
     if yaxis2_title is not None:
-        layout_kwargs["yaxis2"] = dict(
-            title=yaxis2_title, overlaying="y", side="right", showgrid=False,
-        )
+        yaxis2_cfg = dict(title=yaxis2_title, overlaying="y", side="right", showgrid=False)
+        if yaxis2_range is not None:
+            # WITHOUT an explicit range, Plotly autoranges y2 from every trace
+            # AND shape drawn against it - including the inflation-severity
+            # bands, which deliberately extend +-100 past the real data to
+            # bleed off the edge of the visible range. Left unset, that
+            # blows the axis out to roughly that +-100 span, squeezing the
+            # real MoM/YoY line data into a sliver and cramming every band
+            # label together - exactly the "bands overlapping" bug reported.
+            yaxis2_cfg["range"] = yaxis2_range
+        layout_kwargs["yaxis2"] = yaxis2_cfg
     fig.update_layout(**layout_kwargs)
 
 
@@ -437,17 +445,17 @@ st.caption(SOURCE_NOTE + f" · {ct.index.min():%b %Y} – {ct.index.max():%b %Y}
 st.divider()
 
 # ---------------------------------------------------------- main analysis --
-# One combined, click-driven chart: CPI + 3 moving averages on the left axis,
-# MoM %/YoY % on the right axis. Every series is independently toggleable via
-# the legend (native Plotly - click a legend entry to hide it, double-click to
-# isolate it). Bands are opt-in via the checkboxes below (off by default -
-# they're context, not always wanted). 9:3 grid: the chart takes 9 of 12
-# columns; the remaining 3 are deliberately left empty for future widgets.
+# One combined, click-driven chart: CPI on the left axis, MoM %/YoY % on the
+# right axis. Every series is independently toggleable via the legend (native
+# Plotly - click a legend entry to hide it, double-click to isolate it).
+# Bands are opt-in via the checkboxes below (off by default - they're context,
+# not always wanted). 9:3 grid: the chart takes 9 of 12 columns; the
+# remaining 3 are deliberately left empty for future widgets.
 x_min, x_max = ct.index.min(), ct.index.max()
 col_main, col_reserved = st.columns([9, 3])
 
 with col_main:
-    st.subheader("📈 Inflation index, moving averages & change (%)")
+    st.subheader("📈 Inflation index & change (%)")
     b1, b2 = st.columns(2)
     show_event_bands = b1.checkbox("Show major-event bands", value=False)
     show_magnitude_bands = b2.checkbox("Show inflation-severity bands", value=False)
@@ -471,42 +479,22 @@ with col_main:
     fig.add_trace(
         go.Scatter(
             x=ct.index, y=ct["cpi"], mode="lines", name="CPI (General)",
-            line=dict(color=SEQUENTIAL_HUE, width=2.5),
+            line=dict(color=SEQUENTIAL_HUE, width=3),
+            fill="tozeroy", fillcolor="rgba(0,114,178,0.10)",
             hovertemplate="%{x|%b %Y}<br>CPI: %{y:.2f}<extra></extra>",
         )
     )
     fig.add_trace(
         go.Scatter(
-            x=ct.index, y=ct["ma_3m"], mode="lines", name="3-month moving avg",
-            line=dict(color=MA_3M_COLOR, width=1.5, dash="dot"),
-            hovertemplate="%{x|%b %Y}<br>3M avg: %{y:.2f}<extra></extra>",
-        )
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=ct.index, y=ct["ma_6m"], mode="lines", name="6-month moving avg",
-            line=dict(color=MA_6M_COLOR, width=1.5, dash="dash"),
-            hovertemplate="%{x|%b %Y}<br>6M avg: %{y:.2f}<extra></extra>",
-        )
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=ct.index, y=ct["ma_quarter"], mode="lines", name="Calendar-quarter avg",
-            line=dict(color=MA_QUARTER_COLOR, width=1.5, shape="hv"),
-            hovertemplate="%{x|%b %Y}<br>Quarter avg: %{y:.2f}<extra></extra>",
-        )
-    )
-    fig.add_trace(
-        go.Scatter(
             x=ct.index, y=ct["mom_pct"], mode="lines", name="Month-over-month (%)",
-            yaxis="y2", line=dict(color="#56B4E9", width=1.5),
+            yaxis="y2", line=dict(color=MA_QUARTER_COLOR, width=2),
             customdata=mom_text, hovertemplate="%{x|%b %Y}<br>MoM: %{customdata}<extra></extra>",
         )
     )
     fig.add_trace(
         go.Scatter(
             x=ct.index, y=ct["yoy_pct"], mode="lines", name="Year-over-year (%)",
-            yaxis="y2", line=dict(color=HIGHLIGHT_HUE, width=2),
+            yaxis="y2", line=dict(color=HIGHLIGHT_HUE, width=3),
             customdata=yoy_text, hovertemplate="%{x|%b %Y}<br>YoY: %{customdata}<extra></extra>",
         )
     )
@@ -520,7 +508,7 @@ with col_main:
     _add_click_catcher(fig, ct.index, ct["cpi"].min(), ct["cpi"].max())
     _base_layout(
         fig, "Index (2015-16 = 100)", event_rows=n_rows, right_margin=60,
-        yaxis2_title="Change (%)",
+        yaxis2_title="Change (%)", yaxis2_range=[y_lo, y_hi],
     )
     ev_main = st.plotly_chart(
         fig, use_container_width=True, on_select="rerun", key="chart_main", selection_mode="points"
