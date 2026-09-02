@@ -417,14 +417,14 @@ with col_right:
         go.Scatter(
             x=ct.index, y=ct["mom_pct"], mode="lines", name="Month-over-month (%)",
             line=dict(color=SEQUENTIAL_HUE, width=2),
-            hovertemplate="%{x|%b %Y}<br>MoM: %{y:+.2f}%<extra></extra>",
+            hovertemplate="%{x|%b %Y}<br>MoM: %{y:+.1f}%<extra></extra>",
         )
     )
     fig.add_trace(
         go.Scatter(
             x=ct.index, y=ct["yoy_pct"], mode="lines", name="Year-over-year (%)",
             line=dict(color=HIGHLIGHT_HUE, width=2.5),
-            hovertemplate="%{x|%b %Y}<br>YoY: %{y:+.2f}%<extra></extra>",
+            hovertemplate="%{x|%b %Y}<br>YoY: %{y:+.1f}%<extra></extra>",
         )
     )
     n_rows_r = _add_event_bands(fig, hover_y=y_hi * 0.92, x_min=x_min, x_max=x_max)
