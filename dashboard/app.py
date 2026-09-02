@@ -205,7 +205,15 @@ def _add_inflation_bands(fig: go.Figure, y_lo: float, y_hi: float, *, yref: str 
         vis_lo, vis_hi = max(lo, y_lo), min(hi, y_hi)
         if vis_lo < vis_hi:
             fig.add_annotation(
-                x=1.0, xref="paper", xanchor="left",
+                # x=1.0 (paper) is the plot's right edge - the SAME place the
+                # y2 axis draws its own ticks and rotated title, which is
+                # exactly what caused these to visually collide with them.
+                # `xshift` is a FIXED PIXEL nudge (unlike a paper-fraction
+                # offset, which scales with plot width and either overshoots
+                # on a narrow chart or undershoots - clips the label - on a
+                # wide one, exactly what happened here) - 78px reliably
+                # clears the axis's own tick numbers + rotated title.
+                x=1.0, xref="paper", xanchor="left", xshift=78,
                 y=(vis_lo + vis_hi) / 2, yref=yref,
                 text=b["label"], showarrow=False,
                 font=dict(size=9, color="#555"),
@@ -498,16 +506,18 @@ with col_main:
             customdata=yoy_text, hovertemplate="%{x|%b %Y}<br>YoY: %{customdata}<extra></extra>",
         )
     )
-    fig.add_shape(
-        type="line", xref="paper", x0=0, x1=1, yref="y2", y0=0, y1=0,
-        line=dict(color="#333333", width=1.5),
-    )  # deflation vs inflation, unmissable, on the % axis
+    # NOTE: no zero-reference line here anymore. It was drawn against the %
+    # axis (yaxis2), which is mathematically correct but visually indistin-
+    # guishable from a line on the Index axis since both share the same pixel
+    # rows - it read as "the index baseline is at 50", which makes no sense
+    # for CPI. The MoM/YoY colors and (optional) inflation-severity bands
+    # already communicate inflation vs deflation without this extra line.
     n_rows = 0
     if show_event_bands:
         n_rows = _add_event_bands(fig, hover_y=ct["cpi"].max() * 1.03, x_min=x_min, x_max=x_max)
     _add_click_catcher(fig, ct.index, ct["cpi"].min(), ct["cpi"].max())
     _base_layout(
-        fig, "Index (2015-16 = 100)", event_rows=n_rows, right_margin=60,
+        fig, "Index (2015-16 = 100)", event_rows=n_rows, right_margin=195,
         yaxis2_title="Change (%)", yaxis2_range=[y_lo, y_hi],
     )
     ev_main = st.plotly_chart(
@@ -523,7 +533,6 @@ with col_main:
             for e in CORE_EVENTS
         )
         st.markdown(f'<div style="margin:2px 0 10px;">{_legend_chips}</div>', unsafe_allow_html=True)
-    st.caption("Click a legend entry to show/hide that series · click a point on the chart to see what caused that spike ↓")
 
 with col_reserved:
     pass  # reserved for future widgets - deliberately empty, see spec
