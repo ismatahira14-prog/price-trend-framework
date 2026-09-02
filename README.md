@@ -1,5 +1,7 @@
 # A Data-Driven Framework for Price Trend Analysis, Visualization, Forecasting, and Decision Support
 
+![Tests](https://github.com/ismatahira14-prog/price-trend-framework/actions/workflows/tests.yml/badge.svg)
+
 End-to-end system for analysing Pakistan commodity / consumer price movements and turning them
 into decisions. The full pipeline is:
 
@@ -26,6 +28,13 @@ Current output: a single tidy-long fact table (`data/processed/master_long.{parq
 cleaned reference tables in `data/interim/`, `data/processed/ingestion_report.md`, a mirror in
 your local SQL Server, and a DuckDB snapshot (`data/processed/pricelab.duckdb`) that powers the
 dashboard.
+
+## Contributing
+
+Multiple people work on this repo. **[CONTRIBUTING.md](CONTRIBUTING.md)** has the actual
+workflow (branching, PRs, CI, code style) - read that before pushing changes. Short version:
+branch off `main`, open a PR, wait for CI + a review, squash-merge. Licensed under
+[MIT](LICENSE).
 
 ## Setup - local (VS Code)
 

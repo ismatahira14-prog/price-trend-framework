@@ -1,0 +1,32 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install project (dev + dashboard extras)
+        # sqlserver extra is deliberately excluded: pyodbc needs a system ODBC
+        # driver this runner doesn't have. The pipeline already treats SQL
+        # Server as best-effort (see pricelab.integration.sql_export) so
+        # nothing here depends on it.
+        run: pip install -e ".[dev,dashboard]"
+
+      - name: Run tests
+        run: pytest -q
+
+      - name: Lint (ruff)
+        run: ruff check src tests dashboard
+        continue-on-error: true # advisory for now - flip off once the codebase is clean

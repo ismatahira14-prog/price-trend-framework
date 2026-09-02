@@ -1,0 +1,4 @@
+# Auto-requests a review from the project owner on every PR.
+# Add more entries here (e.g. `dashboard/ @someone`) as collaborators join
+# and own specific areas.
+* @ismatahira14-prog
