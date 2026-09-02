@@ -259,6 +259,7 @@ def _base_layout(
     event_rows: int = 0,
     right_margin: int = 10,
     y_range: list[float] | None = None,
+    y_tickformat: str | None = None,
 ) -> None:
     # Vertical event labels need real headroom above the plot (their text runs
     # upward, not sideways) - 130px comfortably fits the longest short_name;
@@ -267,6 +268,8 @@ def _base_layout(
     yaxis_cfg = dict(showgrid=True, gridcolor="rgba(128,128,128,0.15)")
     if y_range is not None:
         yaxis_cfg["range"] = y_range
+    if y_tickformat is not None:
+        yaxis_cfg["tickformat"] = y_tickformat
     fig.update_layout(
         height=440 + top_margin - 130,
         margin=dict(l=10, r=right_margin, t=top_margin, b=10),
@@ -429,7 +432,10 @@ with col_right:
     )
     n_rows_r = _add_event_bands(fig, hover_y=y_hi * 0.92, x_min=x_min, x_max=x_max)
     _add_click_catcher(fig, ct.index, y_lo, y_hi)
-    _base_layout(fig, "Change (%)", event_rows=n_rows_r, right_margin=95, y_range=[y_lo, y_hi])
+    _base_layout(
+        fig, "Change (%)", event_rows=n_rows_r, right_margin=95, y_range=[y_lo, y_hi],
+        y_tickformat=".1f",
+    )
     ev_combined = st.plotly_chart(
         fig, use_container_width=True, on_select="rerun", key="chart_combined", selection_mode="points"
     )
