@@ -213,7 +213,7 @@ def _add_inflation_bands(fig: go.Figure, y_lo: float, y_hi: float, *, yref: str 
                 # on a narrow chart or undershoots - clips the label - on a
                 # wide one, exactly what happened here) - 78px reliably
                 # clears the axis's own tick numbers + rotated title.
-                x=1.0, xref="paper", xanchor="left", xshift=78,
+                x=1.0, xref="paper", xanchor="left", xshift=48,
                 y=(vis_lo + vis_hi) / 2, yref=yref,
                 text=b["label"], showarrow=False,
                 font=dict(size=9, color="#555"),
@@ -517,7 +517,7 @@ with col_main:
         n_rows = _add_event_bands(fig, hover_y=ct["cpi"].max() * 1.03, x_min=x_min, x_max=x_max)
     _add_click_catcher(fig, ct.index, ct["cpi"].min(), ct["cpi"].max())
     _base_layout(
-        fig, "Index (2015-16 = 100)", event_rows=n_rows, right_margin=195,
+        fig, "Index (2015-16 = 100)", event_rows=n_rows, right_margin=150,
         yaxis2_title="Change (%)", yaxis2_range=[y_lo, y_hi],
     )
     ev_main = st.plotly_chart(
