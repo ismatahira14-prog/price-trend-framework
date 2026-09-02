@@ -131,18 +131,18 @@ The Home page is the main analytical view - one continuous flow from "what happe
 caused it", entirely with real PBS CPI data (no mock numbers anywhere on this page):
 
 1. **KPI row** - latest CPI, MoM %, YoY %, and the highest YoY inflation ever recorded (with date).
-2. **Side-by-side charts**, sharing height/typography/tooltip behavior (`hovermode="x"` on both):
-   - *Left - Index & moving averages*: CPI plus 3-month / 6-month rolling averages and a stepped
-     calendar-quarter average (kept as one chart since they share the index unit).
-   - *Right - Month-to-Month & Year-to-Year inflation*: one combined chart, MoM % and YoY % as two
-     lines, with a bold zero line and 5 horizontal **inflation-magnitude bands** (Deflation / Low /
-     Moderate / High / Very high) - thresholds live in `config/analysis.yaml: inflation_bands`, not
-     hard-coded in the chart.
-
-   Both charts carry shaded bands for the same list of dated events (`pricelab.dashboard.factors.EVENTS`)
-   - hover a band for a short explanation. Only a curated subset gets a visible text label (to avoid
-   crowding 11 events onto one chart); every event is still shaded + hoverable.
-3. **Click any point** on either chart (or use the manual period picker) -> the page scrolls to
+2. **One combined, click-driven chart** (Plotly) in a 9:3 grid - the chart takes 9 of 12 columns;
+   the remaining 3 are deliberately left empty for future widgets, not padded with placeholder
+   content. It overlays CPI, the 3 moving averages (left axis, index scale) and MoM %/YoY % (right
+   axis, percent scale) on one timeline. **Every series is independently toggleable** - it's a
+   normal Plotly legend, so click an entry to hide it, double-click to isolate one. Two checkboxes
+   above the chart (**off by default**) add:
+   - **Major-event bands** - shaded, vertically-labeled bands for the 4 core dated events (COVID-19,
+     2022 floods, Russia-Ukraine war, 2023 currency devaluation) from `pricelab.dashboard.factors.EVENTS`,
+     each with its own hover explanation.
+   - **Inflation-severity bands** - 5 horizontal bands (Deflation/Low/Moderate/High/Very high)
+     against the % axis; thresholds live in `config/analysis.yaml: inflation_bands`, not hard-coded.
+3. **Click any point** on the chart (or use the manual period picker below) -> the page scrolls to
    **"What caused the inflation spike?"**, which shows that period's CPI/MoM/YoY and any overlapping
    event (with an explicit "context, not causation" note).
 4. **Real 12-CPI-group breakdown** for the selected month - a ranked bar chart plus a table with
@@ -150,13 +150,35 @@ caused it", entirely with real PBS CPI data (no mock numbers anywhere on this pa
    5th-8th / 9th-12th largest mover that month). This is a real, computed ranking - **not** an
    official basket-weight contribution percentage, which this project's data does not include (the
    page says so explicitly rather than fabricating one).
-5. **Two full archive tables** (month-by-month, year-by-year), same real per-group data, selected
+5. **Month-to-Month vs Year-to-Year comparison** - two side-by-side **Highcharts Stock** charts
+   (range-selector buttons, zoom/pan, navigator scrollbar), positive/negative segments colored
+   distinctly. These are read-only/supplementary - Highcharts has no first-party Streamlit
+   integration, so unlike the chart in step 2 they can't drive the "what caused" section above (see
+   "Why two charting libraries" below).
+6. **Two full archive tables** (month-by-month, year-by-year), same real per-group data, selected
    period highlighted.
-6. **Global Events table** - ~9 well-documented global events (pandemics, wars, shipping
+7. **Global Events table** - ~9 well-documented global events (pandemics, wars, shipping
    disruptions, monetary-policy shifts, commodity shocks) with start/end dates (`"Ongoing"` where
-   there's no real end date), category, transmission channels, and whether each is labeled/shaded
-   on the charts above. Domestic (Pakistan-specific) events - the 2022 floods, the 2023 currency
-   devaluation - are shown on the charts but excluded from this table on purpose.
+   there's no real end date), category, transmission channels, and whether each is shown on the
+   main chart. Domestic (Pakistan-specific) events - the 2022 floods, the 2023 currency devaluation
+   - are shown on the chart but excluded from this table on purpose.
+
+#### Why two charting libraries
+
+The click-driven chart (step 2) uses **Plotly** because Streamlit has first-party, bidirectional
+support for it (`st.plotly_chart(..., on_select=...)` feeds a click straight back into Python).
+The M/M vs Y/Y comparison charts (step 5) use **Highcharts Stock** for its built-in range
+selector/navigator - a better fit for "explore this one series over time" than for driving
+navigation. Highcharts has no Streamlit integration at all, so it's embedded via
+`st.components.v1.html` with the actual library **bundled locally**
+(`dashboard/assets/highstock.js`, ~370KB) rather than loaded from a CDN at runtime - a `<script
+src="https://code.highcharts.com/...">` was verified to silently fail to render in some
+restricted-network environments, and bundling removes that failure mode for every viewer, not
+just the ones this was tested in.
+
+**Licensing note:** Highcharts is free for non-commercial/personal/educational use; a commercial
+license is required for commercial deployment - see <https://www.highcharts.com/license>. Plotly
+(used everywhere else) is fully open-source (MIT), no license consideration needed.
 
 ### Deploying it publicly (Streamlit Community Cloud - free)
 

@@ -29,7 +29,29 @@ def test_home_page_loads_without_exceptions():
     assert len(at.metric) == 8  # 4 top-of-page KPIs + 4 selected-period KPIs
     # 12-group breakdown + month-by-month + year-by-year + Global Events
     assert len(at.dataframe) == 4
-    assert len(at.get("plotly_chart")) == 3  # index+MA, combined MoM/YoY, 12-group bars
+    # combined main chart (click-driven) + 12-group bars. The M/M and Y/Y
+    # comparison charts are Highcharts (embedded via st.components.v1.html),
+    # not st.plotly_chart, so they don't show up here - see test_html below.
+    assert len(at.get("plotly_chart")) == 2
+
+
+def test_highcharts_mom_yoy_comparison_charts_render():
+    """The M/M and Y/Y comparison charts are Highcharts, embedded via
+    st.components.v1.html (-> an `iframe` element in AppTest) since Streamlit
+    has no first-party Highcharts support."""
+    at = AppTest.from_file(str(APP_PATH), default_timeout=60).run()
+    assert not at.exception, [e.message for e in at.exception]
+    iframes = at.get("iframe")
+    assert len(iframes) == 2
+    srcdocs = [f.proto.srcdoc for f in iframes]
+    assert any("hc-mom-chart" in s and "Month-over-month" in s for s in srcdocs)
+    assert any("hc-yoy-chart" in s and "Year-over-year" in s for s in srcdocs)
+    # Highcharts is bundled locally (dashboard/assets/highstock.js), not loaded
+    # from a CDN at runtime - verified live that a CDN <script src> silently
+    # fails to render in some restricted network environments.
+    assert all("Highcharts.stockChart" in s for s in srcdocs)
+    assert all("code.highcharts.com" not in s for s in srcdocs)
+    assert all(len(s) > 300_000 for s in srcdocs)  # the ~370KB library is actually inlined
 
 
 def test_selecting_a_period_updates_metrics_and_tables():
@@ -69,7 +91,7 @@ def test_click_catchers_are_actually_selectable():
     at = AppTest.from_file(str(APP_PATH), default_timeout=60).run()
     assert not at.exception, [e.message for e in at.exception]
 
-    for chart in at.get("plotly_chart")[:2]:  # the two clickable charts
+    for chart in at.get("plotly_chart")[:1]:  # the one click-driven chart (chart_main)
         spec = json.loads(chart.proto.spec)
         catchers = [
             t
