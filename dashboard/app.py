@@ -413,6 +413,15 @@ with col_right:
     pad = (y_hi - y_lo) * 0.08 or 1.0
     y_lo, y_hi = y_lo - pad, y_hi + pad
 
+    # Pre-format the hover text ourselves rather than trust Plotly's
+    # hovertemplate number formatting (%{y:+.1f}): verified live that this
+    # Plotly build renders the literal template text but silently ignores
+    # the numeric format spec, showing the raw float (14+ decimal places)
+    # instead. Passing the already-formatted string via customdata sidesteps
+    # that entirely - there's no format spec left for Plotly to (not) apply.
+    mom_text = [f"{v:+.1f}%" if pd.notna(v) else "n/a" for v in ct["mom_pct"]]
+    yoy_text = [f"{v:+.1f}%" if pd.notna(v) else "n/a" for v in ct["yoy_pct"]]
+
     fig = go.Figure()
     _add_inflation_bands(fig, y_lo, y_hi)
     fig.add_hline(y=0, line_color="#333333", line_width=1.5)  # deflation vs inflation, unmissable
@@ -420,14 +429,16 @@ with col_right:
         go.Scatter(
             x=ct.index, y=ct["mom_pct"], mode="lines", name="Month-over-month (%)",
             line=dict(color=SEQUENTIAL_HUE, width=2),
-            hovertemplate="%{x|%b %Y}<br>MoM: %{y:+.1f}%<extra></extra>",
+            customdata=mom_text,
+            hovertemplate="%{x|%b %Y}<br>MoM: %{customdata}<extra></extra>",
         )
     )
     fig.add_trace(
         go.Scatter(
             x=ct.index, y=ct["yoy_pct"], mode="lines", name="Year-over-year (%)",
             line=dict(color=HIGHLIGHT_HUE, width=2.5),
-            hovertemplate="%{x|%b %Y}<br>YoY: %{y:+.1f}%<extra></extra>",
+            customdata=yoy_text,
+            hovertemplate="%{x|%b %Y}<br>YoY: %{customdata}<extra></extra>",
         )
     )
     n_rows_r = _add_event_bands(fig, hover_y=y_hi * 0.92, x_min=x_min, x_max=x_max)
