@@ -44,6 +44,43 @@ def _main_chart_config(at) -> dict:
     return json.loads(main.proto.json_args)["config"]
 
 
+def _json_after(srcdoc: str, prefix: str) -> object:
+    """Pull a JSON value (object or array) back out of `var NAME = <json>;`
+    inside an embedded <script> block. A simple brace-depth scan (like
+    similar to the main chart's earlier iframe-era JSON extraction) but
+    tracking BOTH `{}` and `[]` together, since a top-level value here can
+    be a JSON array (`_highcharts_group_bars`'s per-mode point lists), not
+    just an object.
+    """
+    start = srcdoc.index(prefix) + len(prefix)
+    assert srcdoc[start] in "{[", f"expected a JSON value right after {prefix!r}"
+    depth, in_string, escaped = 0, False, False
+    for i in range(start, len(srcdoc)):
+        ch = srcdoc[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch in "{[":
+            depth += 1
+        elif ch in "}]":
+            depth -= 1
+            if depth == 0:
+                return json.loads(srcdoc[start : i + 1])
+    raise AssertionError(f"never found the matching close for {prefix!r}")
+
+
+def _group_bars_srcdoc(at) -> str:
+    iframe = next(f for f in at.get("iframe") if "hc-group-mom" in f.proto.srcdoc)
+    return iframe.proto.srcdoc
+
+
 def test_home_page_loads_without_exceptions():
     at = AppTest.from_file(str(APP_PATH), default_timeout=60).run()
     assert not at.exception, [e.message for e in at.exception]
@@ -53,16 +90,18 @@ def test_home_page_loads_without_exceptions():
     assert len(at.metric) == 4
     # Spike-section breakdown + month-by-month + year-by-year + Global Events.
     assert len(at.dataframe) == 4
-    # The 12-group breakdown bar chart is the one Plotly chart left on this
-    # page. The Inflation Index & Change chart is a real custom component
+    # No Plotly left on this page at all - the 12-group breakdown is now a
+    # pair of Highcharts bar charts (MoM/YoY, see _highcharts_group_bars).
+    # The Inflation Index & Change chart is a real custom component
     # (`hc_main_chart`, so it can send a click back into Python) - AppTest
     # has no dedicated wrapper for that, it shows up generically via
-    # `at.get("component_instance")`. The M/M and Y/Y comparison charts
-    # don't need a return channel, so they're still plain Highcharts via
-    # st.components.v1.html -> `iframe` in AppTest.
-    assert len(at.get("plotly_chart")) == 1
+    # `at.get("component_instance")`. Everything else Highcharts-based
+    # (the group-bars pair, sharing one iframe, plus the M/M and Y/Y
+    # comparison charts, one iframe each) doesn't need a return channel,
+    # so it's still plain st.components.v1.html -> `iframe` in AppTest.
+    assert len(at.get("plotly_chart")) == 0
     assert len(at.get("component_instance")) == 1
-    assert len(at.get("iframe")) == 2
+    assert len(at.get("iframe")) == 3
 
 
 def test_inflation_heatmap_page_loads_with_group_columns_and_period_rows():
@@ -165,12 +204,73 @@ def test_event_and_severity_bands_toggle_into_the_chart_config():
     assert any("Very high inflation" in t for t in severity_labels)
 
 
+def test_group_bars_share_one_category_order_and_a_synced_mode_toggle():
+    """The MoM and Y/Y group bar charts (_highcharts_group_bars) must use
+    the exact same groups in the exact same order (not independently
+    re-sorted), matching colors/styling, and one Percentage/Absolute Value
+    toggle driving both charts together."""
+    from pricelab.dashboard.theme import CPI_GROUP_ORDER, DECREASE_COLOR, INCREASE_COLOR
+
+    at = AppTest.from_file(str(APP_PATH), default_timeout=60).run()
+    assert not at.exception, [e.message for e in at.exception]
+    srcdoc = _group_bars_srcdoc(at)
+
+    left_pct = _json_after(srcdoc, "var __leftPct = ")
+    left_abs = _json_after(srcdoc, "var __leftAbs = ")
+    right_pct = _json_after(srcdoc, "var __rightPct = ")
+    right_abs = _json_after(srcdoc, "var __rightAbs = ")
+
+    left_config = _json_after(srcdoc, "Highcharts.chart('hc-group-mom', ")
+    right_config = _json_after(srcdoc, "Highcharts.chart('hc-group-yoy', ")
+    left_categories = left_config["xAxis"]["categories"]
+    right_categories = right_config["xAxis"]["categories"]
+
+    # Same groups, same order, in both charts - and it's the real 12
+    # COICOP groups, not a separately hand-built list.
+    assert left_categories == right_categories
+    assert set(left_categories) == set(CPI_GROUP_ORDER[1:])
+    assert len(left_categories) == 12
+
+    # The Percentage dataset's own point order must match that category
+    # order too (paired by position, not re-sorted per series) - and all
+    # four datasets (both charts x both modes) are the same length as the
+    # category list.
+    for dataset in (left_pct, left_abs, right_pct, right_abs):
+        assert len(dataset) == len(left_categories)
+
+    # Colors follow the same increase/decrease pair used everywhere else on
+    # this page, by the value's own sign - not a separate, ad-hoc palette.
+    for point in left_pct + right_pct:
+        if point is None:
+            continue
+        assert point["color"] == (INCREASE_COLOR if point["y"] >= 0 else DECREASE_COLOR)
+
+    # Titles per the spec: the original chart keeps its identity, the new
+    # one is clearly labeled "Year-to-Year Inflation".
+    assert "Inflation Groups" in srcdoc
+    assert "Year-to-Year Inflation" in srcdoc
+
+    # One shared toggle drives both charts' setData together, with a
+    # smooth Highcharts-native animated transition (not a Streamlit rerun
+    # that would tear down and recreate this iframe on every click).
+    assert "function __setGroupBarMode(mode)" in srcdoc
+    assert "__leftChart.series[0].setData(pct ? __leftPct : __leftAbs, true" in srcdoc
+    assert "__rightChart.series[0].setData(pct ? __rightPct : __rightAbs, true" in srcdoc
+    assert "Percentage" in srcdoc and "Absolute Value" in srcdoc
+
+
 def test_highcharts_mom_yoy_comparison_charts_still_render():
     """The M/M and Y/Y comparison charts are unchanged by this pass - still
     Highcharts, embedded via st.components.v1.html."""
     at = AppTest.from_file(str(APP_PATH), default_timeout=60).run()
     assert not at.exception, [e.message for e in at.exception]
-    iframes = [f for f in at.get("iframe") if "hc-main-chart" not in f.proto.srcdoc]
+    # Inclusion, not "not hc-main-chart" exclusion - the main chart is a
+    # custom component now (never an iframe), and the group-bars pair is a
+    # THIRD iframe on this page that an exclusion filter would incorrectly
+    # sweep in too.
+    iframes = [
+        f for f in at.get("iframe") if "hc-mom-chart" in f.proto.srcdoc or "hc-yoy-chart" in f.proto.srcdoc
+    ]
     assert len(iframes) == 2
     srcdocs = [f.proto.srcdoc for f in iframes]
     assert any("hc-mom-chart" in s and "Month-over-month" in s for s in srcdocs)

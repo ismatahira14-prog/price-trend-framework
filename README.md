@@ -136,20 +136,32 @@ anywhere on this page):
    Click-and-drag horizontally to pan through the time series; **1x/2x/5x/10x zoom-factor buttons**
    plus **Reset** sit above the chart (zoom and pan compose - zoom in, then drag to pan across the
    zoomed window); a navigator + scrollbar below the chart give a second way to move through time.
-   Two checkboxes above the chart (**off by default**) add:
+   **Clicking anywhere on the chart** jumps to "What caused the inflation spike?" below with that
+   month selected (see "Click-to-navigate" below - a real custom Streamlit component, not a plain
+   embed, is what makes this possible). Two checkboxes above the chart (**off by default**) add:
    - **Major-event bands** - shaded bands, each with a vertical label in the chart's own top margin
      (not over the data), for the 4 core dated events (COVID-19, 2022 floods, Russia-Ukraine war,
      2023 currency devaluation) from `pricelab.dashboard.factors.EVENTS`.
    - **Inflation-severity bands** - 5 horizontal bands (Deflation/Low/Moderate/High/Very high)
      against the % axis, each labeled with a light background box for contrast against the lines
      underneath it; thresholds live in `config/analysis.yaml: inflation_bands`, not hard-coded.
-3. **What caused the inflation spike?** - pick any month from a selectbox (independent of the chart
-   above - Highcharts has no first-party Streamlit click integration, see below) to see that
-   period's CPI/MoM/YoY, any overlapping event ("context, not a causal claim"), and a real 12-CPI-
-   group breakdown: a ranked bar chart plus a table with each group's actual MoM %/YoY % and a
-   **Relative Magnitude** rank (High/Medium/Low = 1st-4th / 5th-8th / 9th-12th largest mover that
-   month) - a computed ranking, **not** an official basket-weight contribution percentage, which
-   this project's data does not include.
+3. **What caused the inflation spike?** - click a point on the chart above, or pick any month from
+   its own selectbox, to see that period's CPI/MoM/YoY, any overlapping event ("context, not a
+   causal claim"), and a real 12-CPI-group breakdown as **two side-by-side Highcharts horizontal
+   bar charts** - **Inflation Groups** (MoM % that period) and **Year-to-Year Inflation** (YoY % for
+   the same 12 groups) - both using the *exact same group order* (computed once, from the MoM
+   chart's own ranking, and reused verbatim for the YoY chart rather than letting it re-sort by its
+   own values, so a group sits at the same row in both and stays easy to compare), the same
+   increase/decrease color pair as the rest of the page, and one shared **Percentage / Absolute
+   Value** toggle that animates both charts' bars to the alternate dataset together (index-point
+   change, not just percentage - see `pricelab.dashboard.data.group_change_table`'s `mom_abs`/
+   `yoy_abs` columns) without a page rerun - the toggle buttons live inside the same embed as the
+   charts and call Highcharts' own `series.setData(..., true)` for a smooth animated transition, a
+   Streamlit-side toggle would tear down and recreate the whole embed on every click instead. Below
+   both charts, a table with each group's actual MoM %/YoY % and a **Relative Magnitude** rank
+   (High/Medium/Low = 1st-4th / 5th-8th / 9th-12th largest mover that month) - a computed ranking,
+   **not** an official basket-weight contribution percentage, which this project's data does not
+   include.
 4. **Month-to-Month vs Year-to-Year comparison** - two side-by-side **Highcharts Stock** charts
    (range-selector buttons, zoom/pan, navigator scrollbar), positive/negative segments colored
    distinctly. Read-only/supplementary - independent of everything above.
@@ -161,13 +173,35 @@ anywhere on this page):
    main chart. Domestic (Pakistan-specific) events - the 2022 floods, the 2023 currency devaluation
    - are shown on the chart but excluded from this table on purpose.
 
-Every chart on this page is **Highcharts Stock** except the spike section's 12-group bar chart
-(**Plotly** - kept simple since nothing here needs to feed a chart click back into Python).
-Highcharts is embedded via `st.components.v1.html` with the actual library **bundled locally**
+Every chart on this page is **Highcharts** now - no Plotly left on the Home page at all. Highcharts
+is embedded via `st.components.v1.html` with the actual library **bundled locally**
 (`dashboard/assets/highstock.js`, ~370KB) rather than loaded from a CDN at runtime - a `<script
 src="https://code.highcharts.com/...">` was verified to silently fail to render in some
 restricted-network environments, and bundling removes that failure mode for every viewer, not just
 the ones this was tested in.
+
+#### Click-to-navigate: a real custom Streamlit component
+
+The main chart's click-to-navigate uses `hc_main_chart`, a hand-written custom Streamlit component
+(`dashboard/components/hc_main_chart/` - generated fresh on every app start, gitignored, not
+hand-authored source) rather than `st.components.v1.html`. Unlike that, a real component can call
+`Streamlit.setComponentValue(...)`, sending the clicked month back into Python - the same job
+Plotly's `on_select` did for this chart back when it was Plotly. No build step/npm/React: the
+Streamlit Components JS protocol is just a handful of documented `postMessage` calls
+(`componentReady`/`render`/`setComponentValue`/`setFrameHeight`), small enough to hand-write
+directly. A real page navigation (`?selected_period=<month>`, read back via `st.query_params`) was
+tried first and confirmed live **not** to work: `st.components.v1.html`'s iframe sandbox has no
+`allow-top-navigation` (or the user-activation variant), so the browser silently ignores both a
+direct `location.href` assignment and a same-document `history.pushState` + manually dispatched
+`popstate`.
+
+Two more things worth knowing if you touch this: binding the click handler on each Highcharts
+*series* only fires when the click lands close to that series's own rendered line - with CPI/MoM%/
+YoY% on very different scales, most of the plot isn't "close" to any of them, so most clicks were
+silently swallowed. Use `chart.events.click` instead, which fires anywhere in the plot and hands
+back the x-axis value directly. And the scroll-to-section script (embedded via
+`st.components.v1.html`) only re-executes its `<script>` when the iframe's srcdoc content actually
+changes - a monotonic nonce embedded in the script's own comment forces that on every genuine click.
 
 Two axis-readability notes for anyone touching these charts: every axis explicitly sets a dark
 label/title color (`AXIS_LABEL_STYLE`/`AXIS_TITLE_STYLE` in `app.py`) - Highcharts's own default is

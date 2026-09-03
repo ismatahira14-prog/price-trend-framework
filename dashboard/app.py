@@ -23,9 +23,11 @@ a few `postMessage` calls, small enough to hand-write directly (a real page
 navigation was tried first and doesn't work: Streamlit's `components.html`
 iframe sandbox has no `allow-top-navigation`, confirmed live). The period
 picker (a plain selectbox) still works independently too. The 12-group
-breakdown bar chart in that section, and the M/M vs Y/Y comparison charts
-further down (still plain `st.components.v1.html`, no click behavior needed
-there), are otherwise unchanged.
+breakdown is now a pair of Highcharts bar charts (MoM and YoY, side by
+side, sharing a Percentage/Absolute Value toggle - see
+`_highcharts_group_bars`) rather than one Plotly bar chart. The M/M vs
+Y/Y comparison charts further down (still plain `st.components.v1.html`,
+no click behavior needed there) are unchanged.
 
 The header banner embeds `dashboard/pbs_logo.jpg` (user-supplied).
 """
@@ -38,7 +40,6 @@ import sys
 from pathlib import Path
 
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -280,6 +281,196 @@ def _highcharts_stock(chart_id: str, config: dict, *, height: int = 420) -> None
         </script>
         """,
         height=height,
+    )
+
+
+def _group_bar_points(values: pd.Series) -> list[dict | None]:
+    """One Highcharts bar-chart point per value: color by sign (matching
+    the increase/decrease pair used everywhere else on this page) and a
+    pre-formatted `custom.label` string (e.g. "+3.56%") for the data label
+    and tooltip - `{point.y:+.2f}` isn't a token Highcharts's own format-
+    string mini-language supports (no forced leading "+"), so the exact
+    "+X.XX" look this page already uses elsewhere is precomputed in Python
+    instead and read back via the `point.custom` namespace Highcharts
+    reserves for exactly this.
+    """
+    points = []
+    for v in values:
+        if pd.isna(v):
+            points.append(None)  # renders as a gap, not a fabricated zero
+            continue
+        points.append(
+            {
+                "y": round(float(v), 2),
+                "color": INCREASE_COLOR if v >= 0 else DECREASE_COLOR,
+                "custom": {"label": f"{v:+.2f}"},
+            }
+        )
+    return points
+
+
+def _highcharts_group_bars(
+    left_id: str,
+    right_id: str,
+    *,
+    categories: list[str],
+    left_pct: pd.Series,
+    left_abs: pd.Series,
+    left_title: str,
+    right_pct: pd.Series,
+    right_abs: pd.Series,
+    right_title: str,
+    height: int = 360,
+) -> None:
+    """Two side-by-side Highcharts horizontal bar charts (MoM and YoY
+    inflation by group), sharing one Percentage/Absolute Value toggle.
+
+    Both series' Percentage AND Absolute Value data are computed in Python
+    upfront and embedded together; the toggle buttons are plain HTML/JS
+    (matching the main chart's 1x/2x/5x/10x zoom buttons) that call
+    `series.setData(..., true)` on the ALREADY-LIVE chart instances - a
+    smooth Highcharts-native animated transition between the two datasets,
+    per the spec ("smooth and visually polished"), which a Streamlit-side
+    toggle can't give: that would tear down and recreate this whole
+    `components.html` iframe on every click (a full reload has no
+    continuity for an in-place animation), so the toggle has to live
+    inside the same iframe as the charts it controls - and both charts
+    have to be created in that ONE iframe, since separate `components.html`
+    calls are separate, cross-origin-isolated iframes that can't reach into
+    each other's `window` to update one another's chart instance anyway.
+
+    `categories` is a single shared list, in a single order, used verbatim
+    for both charts - see the call site for why (same source order, not
+    independently re-sorted).
+    """
+    left_pct_pts = _group_bar_points(left_pct)
+    left_abs_pts = _group_bar_points(left_abs)
+    right_pct_pts = _group_bar_points(right_pct)
+    right_abs_pts = _group_bar_points(right_abs)
+
+    def _bar_chart_options(chart_id: str, name: str, data: list, y_title: str) -> dict:
+        return {
+            "chart": {
+                "type": "bar",
+                "backgroundColor": "transparent",
+                "style": {"fontFamily": "inherit"},
+                "height": height,
+            },
+            "title": {"text": None},
+            "xAxis": {
+                "categories": categories,
+                "labels": {"style": AXIS_LABEL_STYLE},
+                "lineColor": "rgba(128,128,128,0.3)",
+            },
+            "yAxis": {
+                "title": {"text": y_title, "style": AXIS_TITLE_STYLE},
+                "labels": {"style": AXIS_LABEL_STYLE},
+                "gridLineColor": "rgba(128,128,128,0.15)",
+                "plotLines": [{"value": 0, "color": "#999999", "width": 1, "zIndex": 3}],
+            },
+            "legend": {"enabled": False},
+            "credits": {"enabled": False},
+            "plotOptions": {
+                "bar": {
+                    "dataLabels": {
+                        "enabled": True,
+                        "format": "{point.custom.label}",
+                        "style": {"fontSize": "11px", "fontWeight": "600", "color": "#333333", "textOutline": "none"},
+                    },
+                    "animation": {"duration": 500},
+                }
+            },
+            "tooltip": {
+                "headerFormat": "",
+                "pointFormat": f"<b>{{point.category}}</b><br/>{name}: " + "{point.custom.label}",
+            },
+            "series": [{"name": name, "data": data}],
+        }
+
+    left_config = _bar_chart_options(left_id, "MoM", left_pct_pts, "Month-to-month change (%)")
+    right_config = _bar_chart_options(right_id, "YoY", right_pct_pts, "Year-to-year change (%)")
+
+    components.html(
+        f"""
+        <div style="margin-bottom:10px; display:flex; gap:8px;">
+            <button onclick="__setGroupBarMode('pct')" id="{left_id}-btn-pct" class="hc-zoom-btn hc-mode-btn hc-mode-btn-active">Percentage</button>
+            <button onclick="__setGroupBarMode('abs')" id="{left_id}-btn-abs" class="hc-zoom-btn hc-mode-btn">Absolute Value</button>
+        </div>
+        <div style="display:flex; flex-wrap:wrap; gap:20px;">
+            <div style="flex:1 1 380px; min-width:280px;">
+                <div style="font-weight:600; color:#222222; margin-bottom:2px;">{left_title}</div>
+                <div id="{left_id}" style="width:100%;"></div>
+            </div>
+            <div style="flex:1 1 380px; min-width:280px;">
+                <div style="font-weight:600; color:#222222; margin-bottom:2px;">{right_title}</div>
+                <div id="{right_id}" style="width:100%;"></div>
+            </div>
+        </div>
+        <style>
+            .hc-zoom-btn {{
+                font: 12px -apple-system, sans-serif; padding: 4px 12px; margin-right: 4px;
+                border: 1px solid #d0d0d0; border-radius: 4px; background: #fafafa;
+                color: #333; cursor: pointer;
+            }}
+            .hc-zoom-btn:hover {{ background: #eef2f6; border-color: #a8c5e0; }}
+            .hc-mode-btn-active {{ background: #e3edf7; border-color: #7fa8cf; font-weight: 600; color: #1a3a5c; }}
+        </style>
+        <script>{_highstock_js()}</script>
+        <script>
+            var __leftPct = {json.dumps(left_pct_pts)};
+            var __leftAbs = {json.dumps(left_abs_pts)};
+            var __rightPct = {json.dumps(right_pct_pts)};
+            var __rightAbs = {json.dumps(right_abs_pts)};
+
+            var __leftChart = Highcharts.chart('{left_id}', {json.dumps(left_config)});
+            var __rightChart = Highcharts.chart('{right_id}', {json.dumps(right_config)});
+
+            var __groupBarMode = 'pct';
+            function __setGroupBarMode(mode) {{
+                if (mode === __groupBarMode) return;
+                __groupBarMode = mode;
+                var pct = mode === 'pct';
+                __leftChart.series[0].setData(pct ? __leftPct : __leftAbs, true, {{duration: 500}});
+                __rightChart.series[0].setData(pct ? __rightPct : __rightAbs, true, {{duration: 500}});
+                __leftChart.yAxis[0].setTitle({{text: pct ? 'Month-to-month change (%)' : 'Month-to-month change (index points)'}});
+                __rightChart.yAxis[0].setTitle({{text: pct ? 'Year-to-year change (%)' : 'Year-to-year change (index points)'}});
+                document.getElementById('{left_id}-btn-pct').classList.toggle('hc-mode-btn-active', pct);
+                document.getElementById('{left_id}-btn-abs').classList.toggle('hc-mode-btn-active', !pct);
+                setTimeout(__resizeGroupBarsFrame, 550);  // after the 500ms setData animation
+            }}
+
+            // The fixed `height=` components.html is given below (sized for
+            // the side-by-side layout) isn't enough once flex-wrap stacks
+            // the two charts on a narrow viewport - confirmed live, the
+            // second (Year-to-Year) chart was silently clipped off entirely,
+            // not just visually cramped. `window.frameElement` reaches the
+            // actual <iframe> element in the parent document (available
+            // here since this iframe carries `allow-same-origin`) - resize
+            // it to the real rendered content height instead of trusting
+            // the static guess, on load and again on viewport resize.
+            //
+            // Resizing the <iframe> alone isn't enough either - confirmed
+            // live: Streamlit wraps it in its own div (`data-testid=
+            // "stElementContainer"`) with a fixed CSS height matching the
+            // ORIGINAL static guess. That div's overflow is "visible" (not
+            // clipped), but a fixed-height box in normal document flow
+            // doesn't grow to fit an overflowing child - later elements on
+            // the page (the archive table right below this) still get
+            // positioned as if this block were only its original height,
+            // so the grown iframe would paint underneath/behind them
+            // instead of pushing them down. Resize that wrapper too.
+            function __resizeGroupBarsFrame() {{
+                if (!window.frameElement) return;
+                var h = document.documentElement.scrollHeight;
+                window.frameElement.style.height = h + 'px';
+                var wrapper = window.frameElement.parentElement;
+                if (wrapper) {{ wrapper.style.height = h + 'px'; }}
+            }}
+            __resizeGroupBarsFrame();
+            window.addEventListener('resize', function() {{ setTimeout(__resizeGroupBarsFrame, 250); }});
+        </script>
+        """,
+        height=height + 60,
     )
 
 
@@ -731,28 +922,25 @@ if picked != selected:
 period_groups = selected_period_group_table(group_long, selected)
 
 if not period_groups.empty:
+    # Canonical group order for BOTH bar charts, computed ONCE here (by MoM
+    # % that period, matching this chart's original/existing sort) - the
+    # Year-to-Year chart reuses this exact row order rather than sorting
+    # itself by its own yoy values, so the two stay visually comparable
+    # group-for-group. Switching Percentage/Absolute Value doesn't re-sort
+    # either (same reasoning: bars jumping around on toggle would defeat
+    # the comparison this pair exists for).
     sorted_for_chart = period_groups.sort_values("mom_pct", ascending=True)
-    _spike_fig = go.Figure(
-        go.Bar(
-            x=sorted_for_chart["mom_pct"],
-            y=sorted_for_chart["group"],
-            orientation="h",
-            marker_color=[
-                INCREASE_COLOR if v >= 0 else DECREASE_COLOR for v in sorted_for_chart["mom_pct"]
-            ],
-            text=[f"{v:+.2f}%" for v in sorted_for_chart["mom_pct"]],
-            textposition="outside",
-            hovertemplate="%{y}<br>MoM: %{x:+.2f}%<extra></extra>",
-        )
+    _highcharts_group_bars(
+        "hc-group-mom",
+        "hc-group-yoy",
+        categories=sorted_for_chart["group"].tolist(),
+        left_pct=sorted_for_chart["mom_pct"],
+        left_abs=sorted_for_chart["mom_abs"],
+        left_title="Inflation Groups",
+        right_pct=sorted_for_chart["yoy_pct"],
+        right_abs=sorted_for_chart["yoy_abs"],
+        right_title="Year-to-Year Inflation",
     )
-    _spike_fig.update_layout(
-        height=360,
-        margin=dict(l=10, r=40, t=10, b=10),
-        xaxis_title="Month-over-month change that period (%)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        xaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.15)", zeroline=True, zerolinecolor="#999"),
-    )
-    st.plotly_chart(_spike_fig, use_container_width=True)
 
     spike_display = period_groups[["group", "mom_pct", "yoy_pct", "relative_magnitude"]].rename(
         columns={

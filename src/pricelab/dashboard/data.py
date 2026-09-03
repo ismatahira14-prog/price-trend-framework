@@ -97,18 +97,33 @@ def cpi_change_table(series: pd.Series) -> pd.DataFrame:
 
 
 def group_change_table(df: pd.DataFrame, groups: list[str]) -> pd.DataFrame:
-    """Real, per-CPI-group MoM %/YoY % - long format: date, group, mom_pct, yoy_pct.
+    """Real, per-CPI-group MoM/YoY change - long format: date, group, mom_pct,
+    yoy_pct, mom_abs, yoy_abs.
 
     This is the actual PBS CPI series for each of the 12 COICOP groups (no
     mock/placeholder values) - the basis for the "What caused the inflation
-    spike?" breakdown and the two archive tables below it.
+    spike?" breakdown, its Percentage/Absolute Value toggle (mom_abs/yoy_abs
+    are the plain index-point change - ``wide.diff()``/``wide.diff(12)`` -
+    the natural "absolute" counterpart to the pct-change columns, not the
+    raw index level itself: that would give both the MoM and YoY chart the
+    exact same single-snapshot bars in absolute mode, losing the MoM-vs-YoY
+    distinction the two charts exist to compare), and the two archive
+    tables below it.
     """
     wide = cpi_series(df, groups)
     mom_long = (wide.pct_change() * 100).stack().reset_index()
     mom_long.columns = ["date", "group", "mom_pct"]
     yoy_long = (wide.pct_change(12) * 100).stack().reset_index()
     yoy_long.columns = ["date", "group", "yoy_pct"]
-    out = mom_long.merge(yoy_long, on=["date", "group"], how="outer")
+    mom_abs_long = wide.diff().stack().reset_index()
+    mom_abs_long.columns = ["date", "group", "mom_abs"]
+    yoy_abs_long = wide.diff(12).stack().reset_index()
+    yoy_abs_long.columns = ["date", "group", "yoy_abs"]
+    out = (
+        mom_long.merge(yoy_long, on=["date", "group"], how="outer")
+        .merge(mom_abs_long, on=["date", "group"], how="outer")
+        .merge(yoy_abs_long, on=["date", "group"], how="outer")
+    )
     return out.sort_values(["date", "group"]).reset_index(drop=True)
 
 
