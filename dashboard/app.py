@@ -48,7 +48,6 @@ from pricelab.dashboard.data import (  # noqa: E402
 )
 from pricelab.dashboard.factors import (  # noqa: E402
     EVENTS,
-    events_covering,
     global_events,
     load_inflation_bands,
 )
@@ -512,8 +511,6 @@ if show_event_bands:
 st.divider()
 
 # ------------------------------------------------------ what caused the spike -
-st.subheader("🔍 What caused the inflation spike?")
-
 st.session_state.setdefault("selected_period", ct.index[-1])
 selected = st.session_state["selected_period"]
 options = list(ct.index[::-1])
@@ -527,20 +524,6 @@ picked = st.selectbox(
 if picked != selected:
     st.session_state["selected_period"] = picked
     selected = picked
-
-row = ct.loc[selected]
-active_events = events_covering(selected)
-
-st.markdown(f"**Selected period: {selected:%B %Y}**")
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("General CPI", f"{row['cpi']:.2f}")
-m2.metric("General MoM", f"{row['mom_pct']:+.2f}%" if pd.notna(row["mom_pct"]) else "n/a")
-m3.metric("General YoY", f"{row['yoy_pct']:+.2f}%" if pd.notna(row["yoy_pct"]) else "n/a")
-m4.metric("Event active", active_events[0]["name"] if active_events else "None on record")
-if active_events:
-    st.caption(
-        "📌 " + " · ".join(e["name"] for e in active_events) + " (context, not a causal claim)"
-    )
 
 period_groups = selected_period_group_table(group_long, selected)
 

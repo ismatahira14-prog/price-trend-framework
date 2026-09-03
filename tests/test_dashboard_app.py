@@ -62,8 +62,10 @@ def _chart_config(srcdoc: str, chart_id: str) -> dict:
 def test_home_page_loads_without_exceptions():
     at = AppTest.from_file(str(APP_PATH), default_timeout=60).run()
     assert not at.exception, [e.message for e in at.exception]
-    # 4 top-of-page KPIs + 4 in "What caused the inflation spike?".
-    assert len(at.metric) == 8
+    # Top-of-page KPIs only - the "What caused the inflation spike?" heading
+    # and its own 4-metric KPI row/active-event caption were removed; the
+    # period picker and 12-group breakdown (bar chart + table) stayed.
+    assert len(at.metric) == 4
     # Spike-section breakdown + month-by-month + year-by-year + Global Events.
     assert len(at.dataframe) == 4
     # The 12-group breakdown bar chart is the one Plotly chart left on this
@@ -73,11 +75,13 @@ def test_home_page_loads_without_exceptions():
     assert len(at.get("iframe")) == 3
 
 
-def test_spike_analysis_section_present():
+def test_spike_analysis_heading_and_kpis_are_gone():
     at = AppTest.from_file(str(APP_PATH), default_timeout=60).run()
     assert not at.exception, [e.message for e in at.exception]
     page_text = " ".join(md.value for md in at.markdown) + " ".join(h.value for h in at.subheader)
-    assert "What caused the inflation spike" in page_text
+    assert "What caused the inflation spike" not in page_text
+    assert "Selected period:" not in page_text  # the bold "**Selected period: ...**" line
+    # The period picker and 12-group breakdown below it are still present.
     assert "period_picker" in at.session_state
     assert "selected_period" in at.session_state
 
@@ -88,10 +92,9 @@ def test_main_chart_full_width_with_pan_and_zoom_controls():
 
     # Regression check: the chart used to sit in st.columns([9, 3]) with an
     # empty reserved column beside it. Column count across the WHOLE page
-    # should now be exactly 12 (4 top KPIs + 2 band checkboxes + 4 spike-
-    # section KPIs + 2 M/M-YoY) - if the 9:3 split were still there, it'd be
-    # 2 higher.
-    assert len(at.columns) == 12
+    # should now be exactly 8 (4 top KPIs + 2 band checkboxes + 2 M/M-YoY) -
+    # if the 9:3 split were still there, it'd be 2 higher.
+    assert len(at.columns) == 8
 
     main = next(f for f in at.get("iframe") if "hc-main-chart" in f.proto.srcdoc)
     srcdoc = main.proto.srcdoc
