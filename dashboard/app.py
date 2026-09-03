@@ -141,6 +141,24 @@ def _event_plotbands(x_min: pd.Timestamp, x_max: pd.Timestamp) -> list[dict]:
     a real browser. Since these sit in the chart's own reserved top margin
     (not over any data), a background box isn't needed for contrast either -
     bold, dark text on the plain white margin is already legible.
+
+    Two more short-duration-band quirks, both verified live by inspecting
+    the rendered label boxes' actual pixel positions (not just inferred from
+    the docs):
+
+    - Even without `useHTML`, Highcharts still wraps plain SVG label text to
+      fit the band's own on-screen width - for "Pakistan Floods" (a ~3.5
+      month band), that meant an unwanted 2-line wrap ("Pakistan"/"Floods"),
+      which *doubled* the rotated label's rendered width and collided with
+      "Russia-Ukraine War" right next to it. `whiteSpace: "nowrap"` forces
+      one line regardless of the band's width.
+    - `x` turned out to barely shift a `rotation: -90` label horizontally in
+      this Highcharts build (each row's labels still landed only a few px
+      apart, at close to their band's own natural anchor position) - `y`
+      does, since for a vertically-rotated label `y` moves along what ends
+      up being the horizontal screen axis post-rotation. Row-packing now
+      staggers on `y`, generously (44px - measured live as enough to clear
+      one single-line 9px label's own rendered width plus a margin).
     """
     bands = []
     for e, row in _pack_event_rows(CORE_EVENTS):
@@ -155,11 +173,18 @@ def _event_plotbands(x_min: pd.Timestamp, x_max: pd.Timestamp) -> list[dict]:
                 "color": e["color"] + "38",  # ~22% alpha, matches the old Plotly opacity
                 "label": {
                     "text": text,
-                    "style": {"fontSize": "9px", "color": "#333333", "fontWeight": "600"},
+                    "style": {
+                        "fontSize": "9px",
+                        "color": "#333333",
+                        "fontWeight": "600",
+                        "whiteSpace": "nowrap",
+                        "width": "150px",
+                        "textOverflow": "none",
+                    },
                     "rotation": -90,
                     "verticalAlign": "top",
-                    "y": -6,
-                    "x": 4 + 16 * row,
+                    "y": -6 + 44 * row,
+                    "x": 4,
                 },
             }
         )
