@@ -570,11 +570,13 @@ _main_chart_clicked = hc_main_chart(
             "style": {"fontFamily": "inherit"},
             # Reserve headroom above the plot for the event-name overlay (see
             # _event_label_data and the JS below) so it prints above the
-            # CPI/MoM/YoY lines instead of on top of them. Fixed, generous
-            # value - comfortably fits "Currency Devaluation" (the longest of
-            # the 4 core event names) in vertical CSS writing-mode at 9px.
-            # Flat 20px with bands off.
-            "marginTop": 150 if show_event_bands else 20,
+            # CPI/MoM/YoY lines instead of on top of them. 110px fits
+            # "Currency Devaluation" (the longest of the 4 core event names,
+            # ~97px tall in vertical CSS writing-mode at 9px, measured live)
+            # with a little room to spare - tightened down from an earlier
+            # 150px that left a visibly large gap above the chart (reported
+            # live). Flat 20px with bands off.
+            "marginTop": 110 if show_event_bands else 20,
             # Plain mouse-drag PANS (spec: "click and drag ... to move
             # through the time series") rather than the Highcharts Stock
             # default of drag-to-zoom-a-rectangle - the two are alternate
