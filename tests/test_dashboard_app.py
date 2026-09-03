@@ -16,6 +16,9 @@ AppTest = st_testing.AppTest
 from pricelab.integration.duckdb_export import snapshot_path  # noqa: E402
 
 APP_PATH = Path(__file__).resolve().parents[1] / "dashboard" / "app.py"
+HEATMAP_PATH = (
+    Path(__file__).resolve().parents[1] / "dashboard" / "pages" / "4_Inflation_Heatmap.py"
+)
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -73,6 +76,30 @@ def test_home_page_loads_without_exceptions():
     # Highcharts (embedded via st.components.v1.html -> `iframe` in AppTest).
     assert len(at.get("plotly_chart")) == 1
     assert len(at.get("iframe")) == 3
+
+
+def test_inflation_heatmap_page_loads_with_group_columns_and_period_rows():
+    at = AppTest.from_file(str(HEATMAP_PATH), default_timeout=60).run()
+    assert not at.exception, [e.message for e in at.exception]
+    assert len(at.dataframe) == 1
+    table = at.dataframe[0].value
+    assert len(table.columns) == 12
+    assert [column.split()[-1] for column in table.columns] == [
+        "Food",
+        "Tobacco",
+        "Clothing",
+        "Housing",
+        "Furnishing",
+        "Health",
+        "Transport",
+        "Communication",
+        "Recreation",
+        "Education",
+        "Restaurants",
+        "Miscellaneous",
+    ]
+    assert table.index.name == "Month"
+    assert len(table) > 0
 
 
 def test_spike_analysis_heading_and_kpis_are_gone():
