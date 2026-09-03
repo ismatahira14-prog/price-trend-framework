@@ -19,7 +19,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
-st.title("Inflation heat map")
+st.title("Inflation heat table")
 st.caption("Rows are months and columns are CPI groups. Values are percentage changes.")
 
 GROUP_ICONS = {
