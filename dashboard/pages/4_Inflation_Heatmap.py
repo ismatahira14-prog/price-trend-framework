@@ -19,7 +19,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
-st.title("Inflation heat table")
+st.title("Inflation Heat Table")
 st.caption("Rows are months and columns are CPI groups. Values are percentage changes.")
 
 GROUP_ICONS = {
@@ -134,14 +134,14 @@ def _value_gradient(value):
         return ""
     if value < 0:
         intensity = min(abs(value) / max_negative, 1)
-        red = int(240 - 120 * intensity)
-        green = int(253 - 15 * intensity)
-        blue = int(244 - 120 * intensity)
+        red = int(220 - 198 * intensity)
+        green = int(252 - 89 * intensity)
+        blue = int(231 - 157 * intensity)
         return f"background-color: rgb({red}, {green}, {blue}); color: #14532D"
     intensity = min(value / max_positive, 1)
-    red = int(254 - 55 * intensity)
-    green = int(242 - 150 * intensity)
-    blue = int(242 - 150 * intensity)
+    red = int(254 - 69 * intensity)
+    green = int(226 - 198 * intensity)
+    blue = int(226 - 198 * intensity)
     if value > 20:
         return f"background-color: rgb({red}, {green}, {blue}); color: #7F1D1D; font-weight: 600"
     return f"background-color: rgb({red}, {green}, {blue}); color: #7F1D1D"
@@ -151,7 +151,8 @@ styled = (
     display_table.style.map(_value_gradient)
     .format(precision=2, na_rep="-")
 )
-st.dataframe(styled, use_container_width=True, height=720)
+table_height = min(720, max(180, 42 + len(display_table) * 35))
+st.dataframe(styled, use_container_width=True, height=table_height)
 st.download_button(
     "Download heat table as CSV",
     data=table.to_csv().encode("utf-8"),
