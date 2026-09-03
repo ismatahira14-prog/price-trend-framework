@@ -21,7 +21,7 @@ next, and **WHAT** decision-makers can do about it.
 | Collection + Integration + light Cleaning | `pricelab.ingestion`, `pricelab.integration` | **done** (this repo) |
 | Storage (SQL Server + DuckDB snapshot) | `pricelab.integration.sql_export`, `.duckdb_export` | **done** |
 | Visualization (web dashboard) | `dashboard/` (Streamlit) | **done**, basic pages |
-| Spike & factor analysis (Home page) | `pricelab.dashboard.factors` | **done**, entirely real data - events, and the 12-group breakdown (see below) |
+| Factor analysis (Home page) | `pricelab.dashboard.factors` | **done**, entirely real data - events and severity bands (see below) |
 | EDA, Events, Spatial, Factors, Forecasting, Uncertainty, Decision | — | planned (see `.claude/plans/`) |
 
 Current output: a single tidy-long fact table (`data/processed/master_long.{parquet,csv,xlsx}`),
@@ -116,7 +116,7 @@ pip install -e ".[dashboard]"     # streamlit + plotly (once)
 streamlit run dashboard/app.py    # or: .\run.cmd dashboard
 ```
 
-Opens `http://localhost:8501` with 4 pages: **Home** (spike & factor analysis - see below),
+Opens `http://localhost:8501` with 4 pages: **Home** (inflation index & factor analysis - see below),
 **CPI Trends** (compare price groups over time), **Crop Production** (top districts by
 area/production/yield), **Data Explorer** (filter + download `master_long`). It reads only the
 DuckDB snapshot - never SQL Server - so it works identically once deployed.
@@ -125,60 +125,50 @@ DuckDB snapshot - never SQL Server - so it works identically once deployed.
 small `>>` control at the top-left to open it and reach the other 3 pages; the dashboard content
 uses the freed-up width by default.
 
-### Home page: spike & factor analysis
+### Home page: Inflation Index & Change
 
-The Home page is the main analytical view - one continuous flow from "what happened" to "what
-caused it", entirely with real PBS CPI data (no mock numbers anywhere on this page):
+The Home page is the main analytical view, entirely with real PBS CPI data (no mock numbers
+anywhere on this page):
 
 1. **KPI row** - latest CPI, MoM %, YoY %, and the highest YoY inflation ever recorded (with date).
-2. **One combined, click-driven chart** (Plotly) in a 9:3 grid - the chart takes 9 of 12 columns;
-   the remaining 3 are deliberately left empty for future widgets, not padded with placeholder
-   content. It overlays CPI, the 3 moving averages (left axis, index scale) and MoM %/YoY % (right
-   axis, percent scale) on one timeline. **Every series is independently toggleable** - it's a
-   normal Plotly legend, so click an entry to hide it, double-click to isolate one. Two checkboxes
-   above the chart (**off by default**) add:
+2. **Inflation Index & Change** - one full-width **Highcharts Stock** chart overlaying CPI (area,
+   left axis, index scale) with MoM %/YoY % (lines, right axis, percent scale) on one timeline.
+   Click-and-drag horizontally to pan through the time series; **1x/2x/5x/10x zoom-factor buttons**
+   plus **Reset** sit above the chart (zoom and pan compose - zoom in, then drag to pan across the
+   zoomed window); a navigator + scrollbar below the chart give a second way to move through time.
+   Two checkboxes above the chart (**off by default**) add:
    - **Major-event bands** - shaded, vertically-labeled bands for the 4 core dated events (COVID-19,
      2022 floods, Russia-Ukraine war, 2023 currency devaluation) from `pricelab.dashboard.factors.EVENTS`,
      each with its own hover explanation.
    - **Inflation-severity bands** - 5 horizontal bands (Deflation/Low/Moderate/High/Very high)
      against the % axis; thresholds live in `config/analysis.yaml: inflation_bands`, not hard-coded.
-3. **Click any point** on the chart (or use the manual period picker below) -> the page scrolls to
-   **"What caused the inflation spike?"**, which shows that period's CPI/MoM/YoY and any overlapping
-   event (with an explicit "context, not causation" note).
-4. **Real 12-CPI-group breakdown** for the selected month - a ranked bar chart plus a table with
-   each group's actual MoM %/YoY % and a **Relative Magnitude** rank (High/Medium/Low = 1st-4th /
-   5th-8th / 9th-12th largest mover that month). This is a real, computed ranking - **not** an
-   official basket-weight contribution percentage, which this project's data does not include (the
-   page says so explicitly rather than fabricating one).
-5. **Month-to-Month vs Year-to-Year comparison** - two side-by-side **Highcharts Stock** charts
+3. **Month-to-Month vs Year-to-Year comparison** - two side-by-side **Highcharts Stock** charts
    (range-selector buttons, zoom/pan, navigator scrollbar), positive/negative segments colored
-   distinctly. These are read-only/supplementary - Highcharts has no first-party Streamlit
-   integration, so unlike the chart in step 2 they can't drive the "what caused" section above (see
-   "Why two charting libraries" below).
-6. **Two full archive tables** (month-by-month, year-by-year), same real per-group data, selected
-   period highlighted.
-7. **Global Events table** - ~9 well-documented global events (pandemics, wars, shipping
+   distinctly. Read-only/supplementary - independent of the main chart above.
+4. **Two full archive tables** (month-by-month, year-by-year), real per-group MoM %/YoY % data for
+   all 12 CPI groups.
+5. **Global Events table** - ~9 well-documented global events (pandemics, wars, shipping
    disruptions, monetary-policy shifts, commodity shocks) with start/end dates (`"Ongoing"` where
    there's no real end date), category, transmission channels, and whether each is shown on the
    main chart. Domestic (Pakistan-specific) events - the 2022 floods, the 2023 currency devaluation
    - are shown on the chart but excluded from this table on purpose.
 
-#### Why two charting libraries
+Every chart on this page is **Highcharts Stock**, embedded via `st.components.v1.html` with the
+actual library **bundled locally** (`dashboard/assets/highstock.js`, ~370KB) rather than loaded
+from a CDN at runtime - a `<script src="https://code.highcharts.com/...">` was verified to silently
+fail to render in some restricted-network environments, and bundling removes that failure mode for
+every viewer, not just the ones this was tested in. (Plotly is still used on the **CPI Trends** and
+**Crop Production** pages, which this doesn't touch.)
 
-The click-driven chart (step 2) uses **Plotly** because Streamlit has first-party, bidirectional
-support for it (`st.plotly_chart(..., on_select=...)` feeds a click straight back into Python).
-The M/M vs Y/Y comparison charts (step 5) use **Highcharts Stock** for its built-in range
-selector/navigator - a better fit for "explore this one series over time" than for driving
-navigation. Highcharts has no Streamlit integration at all, so it's embedded via
-`st.components.v1.html` with the actual library **bundled locally**
-(`dashboard/assets/highstock.js`, ~370KB) rather than loaded from a CDN at runtime - a `<script
-src="https://code.highcharts.com/...">` was verified to silently fail to render in some
-restricted-network environments, and bundling removes that failure mode for every viewer, not
-just the ones this was tested in.
+One Highcharts Stock quirk worth flagging for future changes: `xAxis.ordinal` defaults to `True`
+(built for trading data with weekend/holiday gaps) and registers its own chart-level `pan` handler
+that pre-empts the default one - for a plain continuous monthly series, that handler's own
+extremes math never resolves, silently swallowing every drag. The main chart's config explicitly
+sets `"ordinal": False` to avoid this.
 
 **Licensing note:** Highcharts is free for non-commercial/personal/educational use; a commercial
 license is required for commercial deployment - see <https://www.highcharts.com/license>. Plotly
-(used everywhere else) is fully open-source (MIT), no license consideration needed.
+(used on the other pages) is fully open-source (MIT), no license consideration needed.
 
 ### Deploying it publicly (Streamlit Community Cloud - free)
 

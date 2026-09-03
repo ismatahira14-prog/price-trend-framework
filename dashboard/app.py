@@ -1,14 +1,22 @@
-"""Pakistan Price Trend Framework - Home: CPI spike & factor-analysis dashboard.
+"""Pakistan Price Trend Framework - Home: CPI index & change dashboard.
 
 Run locally:   streamlit run dashboard/app.py   (or: .\\run.cmd dashboard)
 Deployed:      Streamlit Community Cloud, same entry point, reads the
                committed DuckDB snapshot at data/processed/pricelab.duckdb.
 
-DATA-INTEGRITY NOTE: every number in "What caused the inflation spike?" is
-REAL (the actual PBS CPI series for each of the 12 COICOP groups - see
-`pricelab.dashboard.data.group_change_table`). "Relative magnitude" is a
+DATA-INTEGRITY NOTE: the Month-by-Month/Year-by-Year archive tables use the
+REAL PBS CPI series for each of the 12 COICOP groups - see
+`pricelab.dashboard.data.group_change_table`. "Relative magnitude" is a
 computed rank among the 12 groups that period, NOT an official basket-weight
 contribution percentage (this project's data has no official CPI weights).
+
+CHARTING NOTE: every chart on this page is Highcharts now. The main Inflation
+Index & Change chart used to be Plotly specifically so a click on it could
+drive a "What caused the inflation spike?" section further down (Streamlit's
+first-party click<->Python wiring only exists for Plotly). That section has
+been removed, which removed the one reason to keep this chart off Highcharts
+- so it moved to Highcharts too, gaining native pan/zoom and matching the
+M/M and Y/Y comparison charts below it.
 
 The header banner embeds `dashboard/pbs_logo.jpg` (user-supplied).
 """
@@ -21,7 +29,6 @@ import sys
 from pathlib import Path
 
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -33,13 +40,11 @@ from pricelab.dashboard.data import (  # noqa: E402
     cpi_series,
     group_change_table,
     load_master_long,
-    selected_period_group_table,
     with_relative_magnitude,
     yearly_group_change_table,
 )
 from pricelab.dashboard.factors import (  # noqa: E402
     EVENTS,
-    events_covering,
     global_events,
     load_inflation_bands,
 )
@@ -62,7 +67,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-ANCHOR_ID = "factor-analysis-anchor"
 GROUPS_12 = CPI_GROUP_ORDER[1:]  # everything except "General" - the 12 COICOP groups
 CORE_EVENTS = [e for e in EVENTS if e["core_chart_event"]]
 SOURCE_NOTE = "Source: Pakistan Bureau of Statistics (PBS) Consumer Price Index · base 2015-16 = 100"
@@ -89,37 +93,6 @@ def _yearly_groups(_long: pd.DataFrame) -> pd.DataFrame:
     return yearly_group_change_table(_long)
 
 
-def _register_click(event: dict | None, chart_key: str, ct: pd.DataFrame) -> None:
-    """Update session_state.selected_period only on a genuinely NEW click."""
-    points = ((event or {}).get("selection") or {}).get("points") or []
-    if not points:
-        return
-    raw_x = points[0].get("x")
-    seen = st.session_state.setdefault("_last_click_raw", {})
-    if seen.get(chart_key) == raw_x:
-        return  # same selection as last rerun - not a new click
-    seen[chart_key] = raw_x
-    try:
-        clicked = pd.Timestamp(raw_x).replace(day=1)
-    except (ValueError, TypeError):
-        return
-    if clicked not in ct.index:
-        clicked = ct.index[ct.index.get_indexer([clicked], method="nearest")[0]]
-    st.session_state["selected_period"] = clicked
-    # Also push into the manual selectbox's own state (must happen BEFORE that
-    # widget is instantiated below) - otherwise Streamlit keeps the selectbox's
-    # last value and silently overwrites this click a few lines down.
-    st.session_state["period_picker"] = clicked
-    st.session_state["trigger_scroll"] = True
-    # A monotonic counter, not just a bool: components.html's iframe only
-    # re-executes its <script> when its content actually changes. A static
-    # script string worked once (first render) then silently did nothing on
-    # every later click, because Streamlit saw identical srcdoc content and
-    # didn't reload the iframe. Embedding this ever-increasing number in the
-    # script (below) guarantees the content differs on every genuine click.
-    st.session_state["_scroll_nonce"] = st.session_state.get("_scroll_nonce", 0) + 1
-
-
 def _pack_event_rows(events: list[dict]) -> list[tuple[dict, int]]:
     """Greedy interval scheduling: only give two events the same label row if
     their date ranges don't overlap, so labels never collide."""
@@ -136,180 +109,64 @@ def _pack_event_rows(events: list[dict]) -> list[tuple[dict, int]]:
     return packed
 
 
-def _add_event_bands(fig: go.Figure, hover_y: float, x_min, x_max) -> int:
-    """Shade + label + name-only-hover the 4 core events (COVID-19, the 2022
+def _event_plotbands(x_min: pd.Timestamp, x_max: pd.Timestamp) -> list[dict]:
+    """Highcharts xAxis.plotBands for the 4 core events (COVID-19, the 2022
     floods, the Russia-Ukraine war, the 2023 currency devaluation). The other
     dated events (see the Global Events table) are deliberately left off the
-    charts to keep them readable. Returns the number of label rows used, so
-    the caller can size the top margin.
+    chart to keep it readable.
 
-    Labels are short, vertical, and anchored at each band's START rather than
-    its center: horizontal text width doesn't scale with the time axis, so
-    two short-duration events close in time (but not overlapping) could still
-    collide as horizontal text. Row-packing (by real date overlap) is a
-    second line of defense for the rare case two core events do overlap.
+    Row-packing (by real date overlap) staggers each label's vertical offset
+    so two events close in time don't print their labels on top of each
+    other; `label.useHTML` wraps the text in a `title`-attributed span so
+    hovering it shows the same explanation the old Plotly tooltip did.
     """
-    packed = _pack_event_rows(CORE_EVENTS)
-    n_rows = max((row for _, row in packed), default=-1) + 1
-    for e, row in packed:
+    bands = []
+    for e, row in _pack_event_rows(CORE_EVENTS):
         start, end = max(e["start"], x_min), min(e["end"], x_max)
         if start >= end:
             continue
-        fig.add_vrect(
-            x0=start, x1=end, fillcolor=e["color"], opacity=0.22, line_width=0, layer="below"
+        text = e.get("short_name", e["name"])
+        bands.append(
+            {
+                "from": int(start.timestamp() * 1000),
+                "to": int(end.timestamp() * 1000),
+                "color": e["color"] + "38",  # ~22% alpha, matches the old Plotly opacity
+                "label": {
+                    "useHTML": True,
+                    "text": f'<span title="{e["description"]}" style="cursor:help;">{text}</span>',
+                    "style": {"fontSize": "9px", "color": "#666"},
+                    "rotation": 0,
+                    "y": 14 + 14 * row,
+                    "x": 3,
+                },
+            }
         )
-        fig.add_annotation(
-            x=start,
-            y=1.02 + 0.03 * row,
-            yref="paper",
-            text=e.get("short_name", e["name"]),
-            showarrow=False,
-            font=dict(size=9, color="#666"),
-            textangle=-90,
-            xanchor="left",
-            yanchor="bottom",
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=[start + (end - start) / 2],
-                y=[hover_y],
-                mode="markers",
-                marker=dict(size=10, color=e["color"], opacity=0.01),
-                showlegend=False,
-                # NOTE: hoverinfo="skip" would suppress the hover EVENT entirely
-                # (not just the tooltip text) - the custom hovertemplate below
-                # is what actually controls what's shown.
-                hovertemplate=f"<b>{e.get('short_name', e['name'])}</b><extra></extra>",
-            )
-        )
-    return n_rows
+    return bands
 
 
-def _add_inflation_bands(fig: go.Figure, y_lo: float, y_hi: float, *, yref: str = "y") -> None:
-    """Horizontal deflation/low/moderate/high/very-high bands (config-driven -
-    see config/analysis.yaml: inflation_bands, NOT hard-coded here).
-
-    Uses add_shape/add_annotation with an explicit `yref` (not the add_hrect
-    convenience method) so this also works against a manually-added secondary
-    axis ("y2") - add_hrect's secondary-axis support assumes a make_subplots
-    figure, which this isn't.
-    """
+def _severity_plotbands(y_lo: float, y_hi: float) -> list[dict]:
+    """Highcharts yAxis.plotBands for the deflation/low/moderate/high/very-high
+    tiers (config-driven - see config/analysis.yaml: inflation_bands, NOT
+    hard-coded here). Unbounded ends extend +-1000 to bleed past the visible
+    range instead of leaving a gap at the axis edge."""
+    bands = []
     for i, b in enumerate(load_inflation_bands()):
-        lo = b["min"] if b["min"] is not None else y_lo - 100
-        hi = b["max"] if b["max"] is not None else y_hi + 100
-        fig.add_shape(
-            type="rect", xref="paper", x0=0, x1=1, yref=yref, y0=lo, y1=hi,
-            fillcolor=INFLATION_BAND_FILLS[i % len(INFLATION_BAND_FILLS)],
-            line_width=0, layer="below",
+        lo = b["min"] if b["min"] is not None else y_lo - 1000
+        hi = b["max"] if b["max"] is not None else y_hi + 1000
+        bands.append(
+            {
+                "from": lo,
+                "to": hi,
+                "color": INFLATION_BAND_FILLS[i % len(INFLATION_BAND_FILLS)],
+                "label": {
+                    "text": b["label"],
+                    "align": "right",
+                    "x": -4,
+                    "style": {"fontSize": "9px", "color": "#555"},
+                },
+            }
         )
-        vis_lo, vis_hi = max(lo, y_lo), min(hi, y_hi)
-        if vis_lo < vis_hi:
-            fig.add_annotation(
-                # x=1.0 (paper) is the plot's right edge - the SAME place the
-                # y2 axis draws its own ticks and rotated title, which is
-                # exactly what caused these to visually collide with them.
-                # `xshift` is a FIXED PIXEL nudge (unlike a paper-fraction
-                # offset, which scales with plot width and either overshoots
-                # on a narrow chart or undershoots - clips the label - on a
-                # wide one, exactly what happened here) - 78px reliably
-                # clears the axis's own tick numbers + rotated title.
-                x=1.0, xref="paper", xanchor="left", xshift=48,
-                y=(vis_lo + vis_hi) / 2, yref=yref,
-                text=b["label"], showarrow=False,
-                font=dict(size=9, color="#555"),
-            )
-
-
-def _add_click_catcher(fig: go.Figure, dates, y_lo: float, y_hi: float, n_levels: int = 9) -> None:
-    """A grid of invisible markers (every date x N vertical levels), so every
-    point on the chart is individually clickable - including far below zero.
-
-    History of getting this right (verified live with Playwright at each
-    step, not just inferred - Plotly's behavior here isn't obvious from the
-    docs alone):
-
-    1. First attempt used an invisible full-height ``go.Bar`` on a hidden
-       secondary axis. ``hoverinfo="skip"`` on it turned out to exclude the
-       trace from Plotly's hover/click/selection system ENTIRELY - so
-       on_select's `points` was always empty. Fixed with ``hoverinfo="none"``.
-    2. That fixed `plotly_click`, but `plotly_selected` (what Streamlit's
-       `on_select` actually reads) still came back empty - bar traces don't
-       support Plotly's click-to-select-a-single-point behavior at all, only
-       box/lasso drag-select. Switched to ``go.Scatter(mode="markers")``,
-       the trace type single-click selection is actually built for.
-    3. A single marker per date (at one fixed y, e.g. the series midpoint)
-       worked for clicks near that y, but NOT for clicks far from it (e.g.
-       the deep-negative/"decrease" portion of a chart whose other series
-       swings far positive) - Plotly's click-to-select still needs the
-       marker within its hover distance, `hovermode="x"` widening the HOVER
-       tooltip's x-collection doesn't extend that. Fixed by placing a whole
-       COLUMN of markers (`n_levels`, evenly spaced y_lo..y_hi) at every
-       date, so a click anywhere vertically lands near one.
-    """
-    xs: list = []
-    ys: list[float] = []
-    span = (y_hi - y_lo) or 1.0
-    for i in range(n_levels):
-        level = y_lo + span * i / (n_levels - 1)
-        xs.extend(dates)
-        ys.extend([level] * len(dates))
-    fig.add_trace(
-        go.Scatter(
-            x=xs,
-            y=ys,
-            mode="markers",
-            marker=dict(size=1, opacity=0),
-            hoverinfo="none",
-            showlegend=False,
-        )
-    )
-
-
-def _base_layout(
-    fig: go.Figure,
-    y_title: str,
-    *,
-    event_rows: int = 0,
-    right_margin: int = 10,
-    y_range: list[float] | None = None,
-    y_tickformat: str | None = None,
-    yaxis2_title: str | None = None,
-    yaxis2_range: list[float] | None = None,
-) -> None:
-    # Vertical event labels need real headroom above the plot (their text runs
-    # upward, not sideways) - but only reserve it when there ARE labeled rows;
-    # with bands off (event_rows=0) a flat 30px keeps the chart from floating
-    # in ~130px of dead white space above it.
-    top_margin = 30 if event_rows == 0 else 130 + 20 * max(event_rows - 1, 0)
-    yaxis_cfg = dict(showgrid=True, gridcolor="rgba(128,128,128,0.15)")
-    if y_range is not None:
-        yaxis_cfg["range"] = y_range
-    if y_tickformat is not None:
-        yaxis_cfg["tickformat"] = y_tickformat
-    layout_kwargs = dict(
-        height=440 + top_margin - 130,
-        margin=dict(l=10, r=right_margin, t=top_margin, b=10),
-        yaxis_title=y_title,
-        plot_bgcolor="rgba(0,0,0,0)",
-        legend=dict(orientation="h", yanchor="top", y=-0.18, xanchor="left", x=0),
-        xaxis=dict(showgrid=False),
-        yaxis=yaxis_cfg,
-        clickmode="event+select",
-        hovermode="x",
-    )
-    if yaxis2_title is not None:
-        yaxis2_cfg = dict(title=yaxis2_title, overlaying="y", side="right", showgrid=False)
-        if yaxis2_range is not None:
-            # WITHOUT an explicit range, Plotly autoranges y2 from every trace
-            # AND shape drawn against it - including the inflation-severity
-            # bands, which deliberately extend +-100 past the real data to
-            # bleed off the edge of the visible range. Left unset, that
-            # blows the axis out to roughly that +-100 span, squeezing the
-            # real MoM/YoY line data into a sliver and cramming every band
-            # label together - exactly the "bands overlapping" bug reported.
-            yaxis2_cfg["range"] = yaxis2_range
-        layout_kwargs["yaxis2"] = yaxis2_cfg
-    fig.update_layout(**layout_kwargs)
+    return bands
 
 
 def _highcharts_series(series: pd.Series, name: str) -> dict:
@@ -354,10 +211,10 @@ def _highcharts_stock(chart_id: str, config: dict, *, height: int = 420) -> None
     range/zoom" control this page's spec asks for.
 
     This chart is read-only w.r.t. Streamlit - Highcharts has no first-party
-    Streamlit integration, so a click here can't feed back into session_state
-    the way the Plotly chart above does. That's a deliberate scope boundary
-    (see the chat decision to keep the click-driven chart on Plotly and use
-    Highcharts only for these supplementary, non-navigating comparison charts).
+    Streamlit integration, unlike Plotly's `on_select`. Nothing on this page
+    needs that anymore (the click-driven "what caused the spike" section was
+    removed), so every chart here is plain, non-interactive-with-Python
+    Highcharts.
     """
     spec_json = json.dumps(config)
     components.html(
@@ -366,6 +223,60 @@ def _highcharts_stock(chart_id: str, config: dict, *, height: int = 420) -> None
         <script>{_highstock_js()}</script>
         <script>
             Highcharts.stockChart('{chart_id}', {spec_json});
+        </script>
+        """,
+        height=height,
+    )
+
+
+def _highcharts_main_chart(chart_id: str, config: dict, *, height: int = 520) -> None:
+    """Embed the main Inflation Index & Change chart, with a custom zoom-
+    factor button row (1x/2x/5x/10x + Reset) in addition to drag-to-pan.
+
+    Panning (`chart.panning.enabled`) and Highcharts Stock's default
+    drag-to-zoom-a-rectangle are alternate behaviors for the same mouse-drag
+    gesture, not simultaneous - `config` sets panning on and zooming off so a
+    plain drag pans (per spec: "click and drag ... to move through the time
+    series"), and the explicit buttons below cover "zoom factor" instead,
+    via `xAxis.setExtremes` anchored to the most recent date (each factor
+    shows the last 1/Nth of the full time range - "10x" is the most
+    detailed/recent slice). This doesn't fight the mouse-drag panning, the
+    navigator scrollbar, or hover tooltips - they all operate independently.
+    """
+    spec_json = json.dumps(config)
+    fn = chart_id.replace("-", "_")
+    components.html(
+        f"""
+        <div style="margin-bottom:8px;">
+            <button onclick="__zoom_{fn}(1)" class="hc-zoom-btn">1x</button>
+            <button onclick="__zoom_{fn}(2)" class="hc-zoom-btn">2x</button>
+            <button onclick="__zoom_{fn}(5)" class="hc-zoom-btn">5x</button>
+            <button onclick="__zoom_{fn}(10)" class="hc-zoom-btn">10x</button>
+            <button onclick="__reset_{fn}()" class="hc-zoom-btn" style="margin-left:10px;">Reset</button>
+        </div>
+        <div id="{chart_id}" style="width:100%;height:{height - 46}px;"></div>
+        <style>
+            .hc-zoom-btn {{
+                font: 12px -apple-system, sans-serif; padding: 4px 12px; margin-right: 4px;
+                border: 1px solid #d0d0d0; border-radius: 4px; background: #fafafa;
+                color: #333; cursor: pointer;
+            }}
+            .hc-zoom-btn:hover {{ background: #eef2f6; border-color: #a8c5e0; }}
+        </style>
+        <script>{_highstock_js()}</script>
+        <script>
+            var __chart_{fn} = Highcharts.stockChart('{chart_id}', {spec_json});
+            function __zoom_{fn}(factor) {{
+                var ax = __chart_{fn}.xAxis[0];
+                var ext = ax.getExtremes();
+                var span = (ext.dataMax - ext.dataMin) / factor;
+                ax.setExtremes(Math.max(ext.dataMin, ext.dataMax - span), ext.dataMax);
+            }}
+            function __reset_{fn}() {{
+                var ax = __chart_{fn}.xAxis[0];
+                var ext = ax.getExtremes();
+                ax.setExtremes(ext.dataMin, ext.dataMax);
+            }}
         </script>
         """,
         height=height,
@@ -427,9 +338,6 @@ if ct.empty:
 
 group_long = _group_long(df)
 
-st.session_state.setdefault("selected_period", ct.index[-1])
-st.session_state.setdefault("trigger_scroll", False)
-
 # ------------------------------------------------------------------- KPIs --
 latest = ct.iloc[-1]
 peak_yoy_date = ct["yoy_pct"].idxmax() if ct["yoy_pct"].notna().any() else None
@@ -453,196 +361,118 @@ st.caption(SOURCE_NOTE + f" · {ct.index.min():%b %Y} – {ct.index.max():%b %Y}
 st.divider()
 
 # ---------------------------------------------------------- main analysis --
-# One combined, click-driven chart: CPI on the left axis, MoM %/YoY % on the
-# right axis. Every series is independently toggleable via the legend (native
-# Plotly - click a legend entry to hide it, double-click to isolate it).
-# Bands are opt-in via the checkboxes below (off by default - they're context,
-# not always wanted). 9:3 grid: the chart takes 9 of 12 columns; the
-# remaining 3 are deliberately left empty for future widgets.
+# The Inflation Index & Change chart - full width (no reserved side column),
+# Highcharts (see the module docstring for why), every series independently
+# toggleable via the legend, drag-to-pan, and a 1x/2x/5x/10x zoom-factor
+# button row + Reset. Bands are opt-in via the checkboxes below (off by
+# default - they're context, not always wanted).
+st.subheader("📈 Inflation index & change (%)")
+b1, b2 = st.columns(2)
+show_event_bands = b1.checkbox("Show major-event bands", value=False)
+show_magnitude_bands = b2.checkbox("Show inflation-severity bands", value=False)
+
 x_min, x_max = ct.index.min(), ct.index.max()
-col_main, col_reserved = st.columns([9, 3])
+y_lo = min(ct["mom_pct"].min(skipna=True), ct["yoy_pct"].min(skipna=True))
+y_hi = max(ct["mom_pct"].max(skipna=True), ct["yoy_pct"].max(skipna=True))
+pad = (y_hi - y_lo) * 0.08 or 1.0
+y_lo, y_hi = y_lo - pad, y_hi + pad
 
-with col_main:
-    st.subheader("📈 Inflation index & change (%)")
-    b1, b2 = st.columns(2)
-    show_event_bands = b1.checkbox("Show major-event bands", value=False)
-    show_magnitude_bands = b2.checkbox("Show inflation-severity bands", value=False)
-
-    y_lo = min(ct["mom_pct"].min(skipna=True), ct["yoy_pct"].min(skipna=True))
-    y_hi = max(ct["mom_pct"].max(skipna=True), ct["yoy_pct"].max(skipna=True))
-    pad = (y_hi - y_lo) * 0.08 or 1.0
-    y_lo, y_hi = y_lo - pad, y_hi + pad
-
-    # Pre-format hover text ourselves rather than trust Plotly's hovertemplate
-    # number formatting (%{y:+.1f}): verified live that this Plotly build
-    # renders the literal template text but silently ignores the numeric
-    # format spec. Passing the already-formatted string via customdata
-    # sidesteps that - there's no format spec left for Plotly to not apply.
-    mom_text = [f"{v:+.2f}%" if pd.notna(v) else "n/a" for v in ct["mom_pct"]]
-    yoy_text = [f"{v:+.2f}%" if pd.notna(v) else "n/a" for v in ct["yoy_pct"]]
-
-    fig = go.Figure()
-    if show_magnitude_bands:
-        _add_inflation_bands(fig, y_lo, y_hi, yref="y2")
-    fig.add_trace(
-        go.Scatter(
-            x=ct.index, y=ct["cpi"], mode="lines", name="CPI (General)",
-            line=dict(color=SEQUENTIAL_HUE, width=3),
-            fill="tozeroy", fillcolor="rgba(0,114,178,0.10)",
-            hovertemplate="%{x|%b %Y}<br>CPI: %{y:.2f}<extra></extra>",
-        )
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=ct.index, y=ct["mom_pct"], mode="lines", name="Month-over-month (%)",
-            yaxis="y2", line=dict(color=MA_QUARTER_COLOR, width=2),
-            customdata=mom_text, hovertemplate="%{x|%b %Y}<br>MoM: %{customdata}<extra></extra>",
-        )
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=ct.index, y=ct["yoy_pct"], mode="lines", name="Year-over-year (%)",
-            yaxis="y2", line=dict(color=HIGHLIGHT_HUE, width=3),
-            customdata=yoy_text, hovertemplate="%{x|%b %Y}<br>YoY: %{customdata}<extra></extra>",
-        )
-    )
-    # NOTE: no zero-reference line here anymore. It was drawn against the %
-    # axis (yaxis2), which is mathematically correct but visually indistin-
-    # guishable from a line on the Index axis since both share the same pixel
-    # rows - it read as "the index baseline is at 50", which makes no sense
-    # for CPI. The MoM/YoY colors and (optional) inflation-severity bands
-    # already communicate inflation vs deflation without this extra line.
-    n_rows = 0
-    if show_event_bands:
-        n_rows = _add_event_bands(fig, hover_y=ct["cpi"].max() * 1.03, x_min=x_min, x_max=x_max)
-    _add_click_catcher(fig, ct.index, ct["cpi"].min(), ct["cpi"].max())
-    _base_layout(
-        fig, "Index (2015-16 = 100)", event_rows=n_rows, right_margin=150,
-        yaxis2_title="Change (%)", yaxis2_range=[y_lo, y_hi],
-    )
-    ev_main = st.plotly_chart(
-        fig, use_container_width=True, on_select="rerun", key="chart_main", selection_mode="points"
-    )
-    _register_click(ev_main, "chart_main", ct)
-
-    if show_event_bands:
-        _legend_chips = "".join(
-            f'<span style="display:inline-flex;align-items:center;gap:5px;margin-right:16px;font-size:0.82rem;">'
-            f'<span style="width:12px;height:12px;border-radius:3px;background:{e["color"]};'
-            f'display:inline-block;"></span>{e.get("short_name", e["name"])}</span>'
-            for e in CORE_EVENTS
-        )
-        st.markdown(f'<div style="margin:2px 0 10px;">{_legend_chips}</div>', unsafe_allow_html=True)
-
-with col_reserved:
-    pass  # reserved for future widgets - deliberately empty, see spec
-
-st.divider()
-
-# -------------------------------------------------- factor analysis anchor -
-st.markdown(f'<div id="{ANCHOR_ID}"></div>', unsafe_allow_html=True)
-if st.session_state.get("trigger_scroll"):
-    components.html(
-        f"""
-        <script>
-            // nonce {st.session_state.get("_scroll_nonce", 0)} - forces this
-            // iframe's content to differ from the last one, see _register_click
-            setTimeout(function() {{
-                var doc = window.parent.document;
-                var el = doc.getElementById('{ANCHOR_ID}');
-                if (el) {{ el.scrollIntoView({{behavior: 'smooth', block: 'start'}}); }}
-            }}, 150);
-        </script>
-        """,
-        height=1,
-    )
-    st.session_state["trigger_scroll"] = False
-
-st.subheader("🔍 What caused the inflation spike?")
-
-selected = st.session_state["selected_period"]
-options = list(ct.index[::-1])
-picked = st.selectbox(
-    "Selected period (click a chart above, or pick one here)",
-    options=options,
-    index=options.index(selected) if selected in options else 0,
-    format_func=lambda d: d.strftime("%B %Y"),
-    key="period_picker",
-)
-if picked != selected:
-    st.session_state["selected_period"] = picked
-    selected = picked
-
-row = ct.loc[selected]
-active_events = events_covering(selected)
-
-st.markdown(f"**Selected period: {selected:%B %Y}**")
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("General CPI", f"{row['cpi']:.2f}")
-m2.metric("General MoM", f"{row['mom_pct']:+.2f}%" if pd.notna(row["mom_pct"]) else "n/a")
-m3.metric("General YoY", f"{row['yoy_pct']:+.2f}%" if pd.notna(row["yoy_pct"]) else "n/a")
-m4.metric("Event active", active_events[0]["name"] if active_events else "None on record")
-if active_events:
-    st.caption(
-        "📌 " + " · ".join(e["name"] for e in active_events) + " (context, not a causal claim)"
-    )
-
-# ------------------------------------------------------- 12-group breakdown -
-period_groups = selected_period_group_table(group_long, selected)
-
-if not period_groups.empty:
-    sorted_for_chart = period_groups.sort_values("mom_pct", ascending=True)
-    fig = go.Figure(
-        go.Bar(
-            x=sorted_for_chart["mom_pct"],
-            y=sorted_for_chart["group"],
-            orientation="h",
-            marker_color=[
-                INCREASE_COLOR if v >= 0 else DECREASE_COLOR for v in sorted_for_chart["mom_pct"]
-            ],
-            text=[f"{v:+.2f}%" for v in sorted_for_chart["mom_pct"]],
-            textposition="outside",
-            hovertemplate="%{y}<br>MoM: %{x:+.2f}%<extra></extra>",
-        )
-    )
-    fig.update_layout(
-        height=360,
-        margin=dict(l=10, r=40, t=10, b=10),
-        xaxis_title="Month-over-month change that period (%)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        xaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.15)", zeroline=True, zerolinecolor="#999"),
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-    display = period_groups[["group", "mom_pct", "yoy_pct", "relative_magnitude"]].rename(
-        columns={
-            "group": "Inflation Group",
-            "mom_pct": "Month-to-Month Change (%)",
-            "yoy_pct": "Year-to-Year Change (%)",
-            "relative_magnitude": "Relative Magnitude",
-        }
-    )
-    st.dataframe(
-        display,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Month-to-Month Change (%)": st.column_config.NumberColumn(format="%.2f"),
-            "Year-to-Year Change (%)": st.column_config.NumberColumn(format="%.2f"),
+_highcharts_main_chart(
+    "hc-main-chart",
+    {
+        "chart": {
+            "backgroundColor": "transparent",
+            "style": {"fontFamily": "inherit"},
+            # Plain mouse-drag PANS (spec: "click and drag ... to move
+            # through the time series") rather than the Highcharts Stock
+            # default of drag-to-zoom-a-rectangle - the two are alternate
+            # behaviors for the same gesture. `panKey`/`zooming.type` are
+            # deliberately omitted (not set to None/null) rather than
+            # explicitly disabled - Highcharts's config merge treats an
+            # unset key as "use the default", which for panKey is exactly
+            # "no modifier key needed", and null-vs-unset is not guaranteed
+            # to behave identically for every option.
+            "panning": {"enabled": True, "type": "x"},
         },
+        "title": {"text": None},
+        "rangeSelector": {"enabled": False},  # replaced by the 1x/2x/5x/10x buttons above the chart
+        "navigator": {"enabled": True},
+        "scrollbar": {"enabled": True},
+        "xAxis": {
+            "type": "datetime",
+            # Highcharts Stock defaults xAxis.ordinal to True (built for
+            # trading data with weekend/holiday gaps): it registers its own
+            # chart-level "pan" handler that pre-empts the default linear
+            # pan-by-pixel-delta behavior with gap-aware positions, and for
+            # a plain continuous monthly series that handler's own extremes
+            # math never resolves, silently swallowing every drag - the
+            # chart never moves. Our CPI series has no gaps, so this is off.
+            "ordinal": False,
+            "plotBands": _event_plotbands(x_min, x_max) if show_event_bands else [],
+        },
+        "yAxis": [
+            {
+                "title": {"text": "Index (2015-16 = 100)"},
+                "opposite": False,
+                "gridLineColor": "rgba(128,128,128,0.15)",
+            },
+            {
+                "title": {"text": "Change (%)"},
+                "opposite": True,
+                "min": y_lo, "max": y_hi,
+                "gridLineWidth": 0,
+                "plotBands": _severity_plotbands(y_lo, y_hi) if show_magnitude_bands else [],
+                "plotLines": [{"value": 0, "color": "#333333", "width": 1.5, "zIndex": 3}],
+            },
+        ],
+        "tooltip": {"shared": True, "xDateFormat": "%b %Y"},
+        "legend": {"enabled": True},
+        "credits": {"enabled": False},
+        "series": [
+            {
+                "name": "CPI (General)", "type": "area", "yAxis": 0,
+                "color": SEQUENTIAL_HUE, "fillOpacity": 0.10, "lineWidth": 3,
+                "data": [[int(ts.timestamp() * 1000), round(float(v), 2)] for ts, v in ct["cpi"].items()],
+                "tooltip": {"valueDecimals": 2},
+            },
+            {
+                "name": "Month-over-month (%)", "type": "line", "yAxis": 1,
+                "color": MA_QUARTER_COLOR, "lineWidth": 2,
+                "data": [
+                    [int(ts.timestamp() * 1000), round(float(v), 2)]
+                    for ts, v in ct["mom_pct"].dropna().items()
+                ],
+                "tooltip": {"valueDecimals": 2, "valueSuffix": "%"},
+            },
+            {
+                "name": "Year-over-year (%)", "type": "line", "yAxis": 1,
+                "color": HIGHLIGHT_HUE, "lineWidth": 3,
+                "data": [
+                    [int(ts.timestamp() * 1000), round(float(v), 2)]
+                    for ts, v in ct["yoy_pct"].dropna().items()
+                ],
+                "tooltip": {"valueDecimals": 2, "valueSuffix": "%"},
+            },
+        ],
+    },
+)
+
+if show_event_bands:
+    _legend_chips = "".join(
+        f'<span style="display:inline-flex;align-items:center;gap:5px;margin-right:16px;font-size:0.82rem;">'
+        f'<span style="width:12px;height:12px;border-radius:3px;background:{e["color"]};'
+        f'display:inline-block;"></span>{e.get("short_name", e["name"])}</span>'
+        for e in CORE_EVENTS
     )
-    st.caption(f"{SOURCE_NOTE}. Relative Magnitude = rank among the 12 groups that month, not an official weight.")
-else:
-    st.warning("No per-group data available for this period yet.")
+    st.markdown(f'<div style="margin:2px 0 10px;">{_legend_chips}</div>', unsafe_allow_html=True)
 
 st.divider()
 
 # ------------------------------------------------- M/M & Y/Y comparison (Highcharts) -
 st.subheader("Month-to-Month vs Year-to-Year comparison")
 st.caption(
-    "Supplementary comparison views (Highcharts) - drag across either chart to zoom, use the "
-    "range buttons or the navigator scrollbar below the chart. These don't drive the section "
-    "above; click a point on the main chart further up to change the selected period."
+    "Drag across either chart to zoom, use the range buttons or the navigator scrollbar "
+    "below the chart to move through time."
 )
 
 hc_mom, hc_yoy = st.columns(2)
@@ -697,17 +527,9 @@ st.divider()
 
 # ------------------------------------------------------------- Table 1 ----
 st.subheader("Month-by-Month Inflation Change & Contributing Factors")
-st.caption("Rows for the selected month are highlighted.")
 
-month_label = selected.strftime("%b %Y")
 monthly_ranked = with_relative_magnitude(group_long.dropna(subset=["mom_pct"]), group_col="date")
 monthly_ranked["Month"] = monthly_ranked["date"].dt.strftime("%b %Y")
-
-
-def _highlight_month(row: pd.Series) -> list[str]:
-    is_sel = row["Month"] == month_label
-    return ["background-color: rgba(0,114,178,0.15)" if is_sel else "" for _ in row]
-
 
 monthly_display = monthly_ranked[
     ["Month", "group", "mom_pct", "yoy_pct", "relative_magnitude"]
@@ -720,25 +542,21 @@ monthly_display = monthly_ranked[
     }
 )
 st.dataframe(
-    monthly_display.style.apply(_highlight_month, axis=1).format(
-        {"Month-to-Month Change (%)": "{:.2f}", "Year-to-Year Change (%)": "{:.2f}"}
-    ),
+    monthly_display,
     use_container_width=True,
     height=320,
+    hide_index=True,
+    column_config={
+        "Month-to-Month Change (%)": st.column_config.NumberColumn(format="%.2f"),
+        "Year-to-Year Change (%)": st.column_config.NumberColumn(format="%.2f"),
+    },
 )
 
 # ------------------------------------------------------------- Table 2 ----
 st.subheader("Year-by-Year Inflation Change & Contributing Factors")
-st.caption("Calendar-year averages of the monthly series. Rows for the selected year are highlighted.")
+st.caption("Calendar-year averages of the monthly series.")
 
 yearly_ranked = _yearly_groups(group_long)
-selected_year = selected.year
-
-
-def _highlight_year(row: pd.Series) -> list[str]:
-    is_sel = row["Year"] == selected_year
-    return ["background-color: rgba(0,114,178,0.15)" if is_sel else "" for _ in row]
-
 
 yearly_display = yearly_ranked[["year", "group", "mom_pct", "yoy_pct", "relative_magnitude"]].rename(
     columns={
@@ -750,11 +568,14 @@ yearly_display = yearly_ranked[["year", "group", "mom_pct", "yoy_pct", "relative
     }
 )
 st.dataframe(
-    yearly_display.style.apply(_highlight_year, axis=1).format(
-        {"Avg Month-to-Month Change (%)": "{:.2f}", "Avg Year-to-Year Change (%)": "{:.2f}"}
-    ),
+    yearly_display,
     use_container_width=True,
     height=320,
+    hide_index=True,
+    column_config={
+        "Avg Month-to-Month Change (%)": st.column_config.NumberColumn(format="%.2f"),
+        "Avg Year-to-Year Change (%)": st.column_config.NumberColumn(format="%.2f"),
+    },
 )
 
 st.caption(SOURCE_NOTE)
