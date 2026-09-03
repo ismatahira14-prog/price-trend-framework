@@ -4,19 +4,20 @@ Run locally:   streamlit run dashboard/app.py   (or: .\\run.cmd dashboard)
 Deployed:      Streamlit Community Cloud, same entry point, reads the
                committed DuckDB snapshot at data/processed/pricelab.duckdb.
 
-DATA-INTEGRITY NOTE: the Month-by-Month/Year-by-Year archive tables use the
-REAL PBS CPI series for each of the 12 COICOP groups - see
-`pricelab.dashboard.data.group_change_table`. "Relative magnitude" is a
+DATA-INTEGRITY NOTE: every number in "What caused the inflation spike?" and
+the Month-by-Month/Year-by-Year archive tables is REAL (the actual PBS CPI
+series for each of the 12 COICOP groups - see
+`pricelab.dashboard.data.group_change_table`). "Relative magnitude" is a
 computed rank among the 12 groups that period, NOT an official basket-weight
 contribution percentage (this project's data has no official CPI weights).
 
-CHARTING NOTE: every chart on this page is Highcharts now. The main Inflation
-Index & Change chart used to be Plotly specifically so a click on it could
-drive a "What caused the inflation spike?" section further down (Streamlit's
-first-party click<->Python wiring only exists for Plotly). That section has
-been removed, which removed the one reason to keep this chart off Highcharts
-- so it moved to Highcharts too, gaining native pan/zoom and matching the
-M/M and Y/Y comparison charts below it.
+CHARTING NOTE: the main Inflation Index & Change chart is Highcharts (full-
+width, drag-to-pan, 1x/2x/5x/10x zoom) - it no longer drives "What caused the
+inflation spike?" via a click, since Highcharts has no first-party Streamlit
+click<->Python wiring the way Plotly's `on_select` does. That section instead
+uses its own period picker (a plain selectbox), independent of the chart
+above it. The 12-group breakdown bar chart in that section, and the M/M vs
+Y/Y comparison charts further down, are otherwise unchanged.
 
 The header banner embeds `dashboard/pbs_logo.jpg` (user-supplied).
 """
@@ -29,6 +30,7 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -40,11 +42,13 @@ from pricelab.dashboard.data import (  # noqa: E402
     cpi_series,
     group_change_table,
     load_master_long,
+    selected_period_group_table,
     with_relative_magnitude,
     yearly_group_change_table,
 )
 from pricelab.dashboard.factors import (  # noqa: E402
     EVENTS,
+    events_covering,
     global_events,
     load_inflation_bands,
 )
@@ -70,6 +74,13 @@ st.set_page_config(
 GROUPS_12 = CPI_GROUP_ORDER[1:]  # everything except "General" - the 12 COICOP groups
 CORE_EVENTS = [e for e in EVENTS if e["core_chart_event"]]
 SOURCE_NOTE = "Source: Pakistan Bureau of Statistics (PBS) Consumer Price Index · base 2015-16 = 100"
+
+# Highcharts's default axis-label color is a light theme-neutral gray, tuned
+# for a plain white card - against this page's chart cards it reads as
+# washed-out/blurry. Every axis on every Highcharts chart on this page uses
+# these two styles explicitly instead of the library default.
+AXIS_LABEL_STYLE = {"color": "#333333", "fontSize": "11px"}
+AXIS_TITLE_STYLE = {"color": "#222222", "fontSize": "12px", "fontWeight": "600"}
 
 
 @st.cache_data(ttl=3600)
@@ -115,10 +126,22 @@ def _event_plotbands(x_min: pd.Timestamp, x_max: pd.Timestamp) -> list[dict]:
     dated events (see the Global Events table) are deliberately left off the
     chart to keep it readable.
 
-    Row-packing (by real date overlap) staggers each label's vertical offset
-    so two events close in time don't print their labels on top of each
-    other; `label.useHTML` wraps the text in a `title`-attributed span so
-    hovering it shows the same explanation the old Plotly tooltip did.
+    Labels are vertical (rotation -90), matching the original Plotly design:
+    horizontal label text has a fixed pixel width that can collide with an
+    adjacent short-duration band's label even when their date ranges don't
+    overlap - vertical text sidesteps that entirely, and a negative `y`
+    lifts them into the chart's reserved top margin (see `marginTop` at the
+    call site) instead of printing on top of the CPI/MoM/YoY lines. Row-
+    packing (by real date overlap) still staggers rows via `x` for the rare
+    case two events are genuinely close together.
+
+    Plain SVG text (no `useHTML`), deliberately: `useHTML` + `rotation`
+    together made Highcharts constrain the label's (pre-rotation) box width
+    to the band's own on-screen pixel width, silently truncating anything
+    wider than a short-duration band with a literal "..." - verified live in
+    a real browser. Since these sit in the chart's own reserved top margin
+    (not over any data), a background box isn't needed for contrast either -
+    bold, dark text on the plain white margin is already legible.
     """
     bands = []
     for e, row in _pack_event_rows(CORE_EVENTS):
@@ -132,12 +155,12 @@ def _event_plotbands(x_min: pd.Timestamp, x_max: pd.Timestamp) -> list[dict]:
                 "to": int(end.timestamp() * 1000),
                 "color": e["color"] + "38",  # ~22% alpha, matches the old Plotly opacity
                 "label": {
-                    "useHTML": True,
-                    "text": f'<span title="{e["description"]}" style="cursor:help;">{text}</span>',
-                    "style": {"fontSize": "9px", "color": "#666"},
-                    "rotation": 0,
-                    "y": 14 + 14 * row,
-                    "x": 3,
+                    "text": text,
+                    "style": {"fontSize": "9px", "color": "#333333", "fontWeight": "600"},
+                    "rotation": -90,
+                    "verticalAlign": "top",
+                    "y": -6,
+                    "x": 4 + 16 * row,
                 },
             }
         )
@@ -148,7 +171,13 @@ def _severity_plotbands(y_lo: float, y_hi: float) -> list[dict]:
     """Highcharts yAxis.plotBands for the deflation/low/moderate/high/very-high
     tiers (config-driven - see config/analysis.yaml: inflation_bands, NOT
     hard-coded here). Unbounded ends extend +-1000 to bleed past the visible
-    range instead of leaving a gap at the axis edge."""
+    range instead of leaving a gap at the axis edge.
+
+    `useHTML` gives each label a light background so it stays legible
+    wherever it lands - including directly on top of the CPI/MoM/YoY lines,
+    which a plain-text label (no backing box) does not survive against a
+    busy chart.
+    """
     bands = []
     for i, b in enumerate(load_inflation_bands()):
         lo = b["min"] if b["min"] is not None else y_lo - 1000
@@ -159,10 +188,15 @@ def _severity_plotbands(y_lo: float, y_hi: float) -> list[dict]:
                 "to": hi,
                 "color": INFLATION_BAND_FILLS[i % len(INFLATION_BAND_FILLS)],
                 "label": {
-                    "text": b["label"],
+                    "useHTML": True,
+                    "text": (
+                        f'<span style="font-size:9px; line-height:9px; '
+                        f'background:rgba(255,255,255,0.85); color:#333; '
+                        f'font-weight:600; padding:1px 4px; border-radius:3px; '
+                        f'white-space:nowrap;">{b["label"]}</span>'
+                    ),
                     "align": "right",
-                    "x": -4,
-                    "style": {"fontSize": "9px", "color": "#555"},
+                    "x": -6,
                 },
             }
         )
@@ -211,10 +245,8 @@ def _highcharts_stock(chart_id: str, config: dict, *, height: int = 420) -> None
     range/zoom" control this page's spec asks for.
 
     This chart is read-only w.r.t. Streamlit - Highcharts has no first-party
-    Streamlit integration, unlike Plotly's `on_select`. Nothing on this page
-    needs that anymore (the click-driven "what caused the spike" section was
-    removed), so every chart here is plain, non-interactive-with-Python
-    Highcharts.
+    Streamlit integration, unlike Plotly's `on_select`. "What caused the
+    inflation spike?" uses its own selectbox instead of a chart click.
     """
     spec_json = json.dumps(config)
     components.html(
@@ -383,6 +415,14 @@ _highcharts_main_chart(
         "chart": {
             "backgroundColor": "transparent",
             "style": {"fontFamily": "inherit"},
+            # Reserve headroom above the plot for the event bands' vertical
+            # labels (see _event_plotbands) so they print above the CPI/MoM/
+            # YoY lines instead of getting clipped by the chart's own edge.
+            # Row-packing staggers labels HORIZONTALLY (via `x`), not
+            # vertically, so this only needs to fit the single longest label
+            # ("Currency Devaluation") at 9px, not scale with the row count.
+            # Flat 20px with bands off.
+            "marginTop": 145 if show_event_bands else 20,
             # Plain mouse-drag PANS (spec: "click and drag ... to move
             # through the time series") rather than the Highcharts Stock
             # default of drag-to-zoom-a-rectangle - the two are alternate
@@ -400,6 +440,7 @@ _highcharts_main_chart(
         "scrollbar": {"enabled": True},
         "xAxis": {
             "type": "datetime",
+            "labels": {"style": AXIS_LABEL_STYLE},
             # Highcharts Stock defaults xAxis.ordinal to True (built for
             # trading data with weekend/holiday gaps): it registers its own
             # chart-level "pan" handler that pre-empts the default linear
@@ -412,12 +453,14 @@ _highcharts_main_chart(
         },
         "yAxis": [
             {
-                "title": {"text": "Index (2015-16 = 100)"},
+                "title": {"text": "Index (2015-16 = 100)", "style": AXIS_TITLE_STYLE},
+                "labels": {"style": AXIS_LABEL_STYLE},
                 "opposite": False,
                 "gridLineColor": "rgba(128,128,128,0.15)",
             },
             {
-                "title": {"text": "Change (%)"},
+                "title": {"text": "Change (%)", "style": AXIS_TITLE_STYLE},
+                "labels": {"style": AXIS_LABEL_STYLE},
                 "opposite": True,
                 "min": y_lo, "max": y_hi,
                 "gridLineWidth": 0,
@@ -468,6 +511,86 @@ if show_event_bands:
 
 st.divider()
 
+# ------------------------------------------------------ what caused the spike -
+st.subheader("🔍 What caused the inflation spike?")
+
+st.session_state.setdefault("selected_period", ct.index[-1])
+selected = st.session_state["selected_period"]
+options = list(ct.index[::-1])
+picked = st.selectbox(
+    "Selected period",
+    options=options,
+    index=options.index(selected) if selected in options else 0,
+    format_func=lambda d: d.strftime("%B %Y"),
+    key="period_picker",
+)
+if picked != selected:
+    st.session_state["selected_period"] = picked
+    selected = picked
+
+row = ct.loc[selected]
+active_events = events_covering(selected)
+
+st.markdown(f"**Selected period: {selected:%B %Y}**")
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("General CPI", f"{row['cpi']:.2f}")
+m2.metric("General MoM", f"{row['mom_pct']:+.2f}%" if pd.notna(row["mom_pct"]) else "n/a")
+m3.metric("General YoY", f"{row['yoy_pct']:+.2f}%" if pd.notna(row["yoy_pct"]) else "n/a")
+m4.metric("Event active", active_events[0]["name"] if active_events else "None on record")
+if active_events:
+    st.caption(
+        "📌 " + " · ".join(e["name"] for e in active_events) + " (context, not a causal claim)"
+    )
+
+period_groups = selected_period_group_table(group_long, selected)
+
+if not period_groups.empty:
+    sorted_for_chart = period_groups.sort_values("mom_pct", ascending=True)
+    _spike_fig = go.Figure(
+        go.Bar(
+            x=sorted_for_chart["mom_pct"],
+            y=sorted_for_chart["group"],
+            orientation="h",
+            marker_color=[
+                INCREASE_COLOR if v >= 0 else DECREASE_COLOR for v in sorted_for_chart["mom_pct"]
+            ],
+            text=[f"{v:+.2f}%" for v in sorted_for_chart["mom_pct"]],
+            textposition="outside",
+            hovertemplate="%{y}<br>MoM: %{x:+.2f}%<extra></extra>",
+        )
+    )
+    _spike_fig.update_layout(
+        height=360,
+        margin=dict(l=10, r=40, t=10, b=10),
+        xaxis_title="Month-over-month change that period (%)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        xaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.15)", zeroline=True, zerolinecolor="#999"),
+    )
+    st.plotly_chart(_spike_fig, use_container_width=True)
+
+    spike_display = period_groups[["group", "mom_pct", "yoy_pct", "relative_magnitude"]].rename(
+        columns={
+            "group": "Inflation Group",
+            "mom_pct": "Month-to-Month Change (%)",
+            "yoy_pct": "Year-to-Year Change (%)",
+            "relative_magnitude": "Relative Magnitude",
+        }
+    )
+    st.dataframe(
+        spike_display,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Month-to-Month Change (%)": st.column_config.NumberColumn(format="%.2f"),
+            "Year-to-Year Change (%)": st.column_config.NumberColumn(format="%.2f"),
+        },
+    )
+    st.caption(f"{SOURCE_NOTE}. Relative Magnitude = rank among the 12 groups that month, not an official weight.")
+else:
+    st.warning("No per-group data available for this period yet.")
+
+st.divider()
+
 # ------------------------------------------------- M/M & Y/Y comparison (Highcharts) -
 st.subheader("Month-to-Month vs Year-to-Year comparison")
 st.caption(
@@ -478,7 +601,7 @@ st.caption(
 hc_mom, hc_yoy = st.columns(2)
 _hc_shared_xaxis = {
     "type": "datetime",
-    "labels": {"style": {"fontSize": "11px"}},
+    "labels": {"style": AXIS_LABEL_STYLE},
 }
 _hc_shared_rangeselector = {
     "selected": 4,
@@ -500,7 +623,11 @@ with hc_mom:
             "title": {"text": None},
             "rangeSelector": _hc_shared_rangeselector,
             "xAxis": _hc_shared_xaxis,
-            "yAxis": {"title": {"text": "MoM change (%)"}, "opposite": False},
+            "yAxis": {
+                "title": {"text": "MoM change (%)", "style": AXIS_TITLE_STYLE},
+                "labels": {"style": AXIS_LABEL_STYLE},
+                "opposite": False,
+            },
             "tooltip": {"valueDecimals": 2, "valueSuffix": "%", "shared": True},
             "series": [_highcharts_series(ct["mom_pct"], "Month-over-month (%)")],
             "credits": {"enabled": False},
@@ -516,7 +643,11 @@ with hc_yoy:
             "title": {"text": None},
             "rangeSelector": _hc_shared_rangeselector,
             "xAxis": _hc_shared_xaxis,
-            "yAxis": {"title": {"text": "YoY change (%)"}, "opposite": False},
+            "yAxis": {
+                "title": {"text": "YoY change (%)", "style": AXIS_TITLE_STYLE},
+                "labels": {"style": AXIS_LABEL_STYLE},
+                "opposite": False,
+            },
             "tooltip": {"valueDecimals": 2, "valueSuffix": "%", "shared": True},
             "series": [_highcharts_series(ct["yoy_pct"], "Year-over-year (%)")],
             "credits": {"enabled": False},

@@ -137,28 +137,47 @@ anywhere on this page):
    plus **Reset** sit above the chart (zoom and pan compose - zoom in, then drag to pan across the
    zoomed window); a navigator + scrollbar below the chart give a second way to move through time.
    Two checkboxes above the chart (**off by default**) add:
-   - **Major-event bands** - shaded, vertically-labeled bands for the 4 core dated events (COVID-19,
-     2022 floods, Russia-Ukraine war, 2023 currency devaluation) from `pricelab.dashboard.factors.EVENTS`,
-     each with its own hover explanation.
+   - **Major-event bands** - shaded bands, each with a vertical label in the chart's own top margin
+     (not over the data), for the 4 core dated events (COVID-19, 2022 floods, Russia-Ukraine war,
+     2023 currency devaluation) from `pricelab.dashboard.factors.EVENTS`.
    - **Inflation-severity bands** - 5 horizontal bands (Deflation/Low/Moderate/High/Very high)
-     against the % axis; thresholds live in `config/analysis.yaml: inflation_bands`, not hard-coded.
-3. **Month-to-Month vs Year-to-Year comparison** - two side-by-side **Highcharts Stock** charts
+     against the % axis, each labeled with a light background box for contrast against the lines
+     underneath it; thresholds live in `config/analysis.yaml: inflation_bands`, not hard-coded.
+3. **What caused the inflation spike?** - pick any month from a selectbox (independent of the chart
+   above - Highcharts has no first-party Streamlit click integration, see below) to see that
+   period's CPI/MoM/YoY, any overlapping event ("context, not a causal claim"), and a real 12-CPI-
+   group breakdown: a ranked bar chart plus a table with each group's actual MoM %/YoY % and a
+   **Relative Magnitude** rank (High/Medium/Low = 1st-4th / 5th-8th / 9th-12th largest mover that
+   month) - a computed ranking, **not** an official basket-weight contribution percentage, which
+   this project's data does not include.
+4. **Month-to-Month vs Year-to-Year comparison** - two side-by-side **Highcharts Stock** charts
    (range-selector buttons, zoom/pan, navigator scrollbar), positive/negative segments colored
-   distinctly. Read-only/supplementary - independent of the main chart above.
-4. **Two full archive tables** (month-by-month, year-by-year), real per-group MoM %/YoY % data for
+   distinctly. Read-only/supplementary - independent of everything above.
+5. **Two full archive tables** (month-by-month, year-by-year), real per-group MoM %/YoY % data for
    all 12 CPI groups.
-5. **Global Events table** - ~9 well-documented global events (pandemics, wars, shipping
+6. **Global Events table** - ~9 well-documented global events (pandemics, wars, shipping
    disruptions, monetary-policy shifts, commodity shocks) with start/end dates (`"Ongoing"` where
    there's no real end date), category, transmission channels, and whether each is shown on the
    main chart. Domestic (Pakistan-specific) events - the 2022 floods, the 2023 currency devaluation
    - are shown on the chart but excluded from this table on purpose.
 
-Every chart on this page is **Highcharts Stock**, embedded via `st.components.v1.html` with the
-actual library **bundled locally** (`dashboard/assets/highstock.js`, ~370KB) rather than loaded
-from a CDN at runtime - a `<script src="https://code.highcharts.com/...">` was verified to silently
-fail to render in some restricted-network environments, and bundling removes that failure mode for
-every viewer, not just the ones this was tested in. (Plotly is still used on the **CPI Trends** and
-**Crop Production** pages, which this doesn't touch.)
+Every chart on this page is **Highcharts Stock** except the spike section's 12-group bar chart
+(**Plotly** - kept simple since nothing here needs to feed a chart click back into Python).
+Highcharts is embedded via `st.components.v1.html` with the actual library **bundled locally**
+(`dashboard/assets/highstock.js`, ~370KB) rather than loaded from a CDN at runtime - a `<script
+src="https://code.highcharts.com/...">` was verified to silently fail to render in some
+restricted-network environments, and bundling removes that failure mode for every viewer, not just
+the ones this was tested in.
+
+Two axis-readability notes for anyone touching these charts: every axis explicitly sets a dark
+label/title color (`AXIS_LABEL_STYLE`/`AXIS_TITLE_STYLE` in `app.py`) - Highcharts's own default is
+a light theme-neutral gray tuned for a plain white card, which read as washed-out here. And a
+`plotBands` label needs a `useHTML` wrapper (a light background box) to stay legible against
+whatever line crosses behind it, **except** when it's also rotated - `useHTML` + `rotation`
+together made Highcharts constrain the label's box to the band's own on-screen pixel width,
+silently truncating anything wider than a short-duration band (verified live in a real browser).
+The event bands' vertical labels use plain, non-HTML rotated text instead, sized by the chart's
+own reserved top margin rather than the band's width.
 
 One Highcharts Stock quirk worth flagging for future changes: `xAxis.ordinal` defaults to `True`
 (built for trading data with weekend/holiday gaps) and registers its own chart-level `pan` handler
