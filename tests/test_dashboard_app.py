@@ -156,6 +156,7 @@ def test_event_and_severity_bands_toggle_into_the_chart_config():
     cfg = _chart_config(main.proto.srcdoc, "hc-main-chart")
     assert cfg["xAxis"]["plotBands"] == []  # off by default
     assert cfg["yAxis"][1]["plotBands"] == []
+    assert cfg["eventLabels"] == []
 
     event_cb = next(c for c in at.checkbox if "major-event" in c.label.lower())
     severity_cb = next(c for c in at.checkbox if "severity" in c.label.lower())
@@ -166,11 +167,19 @@ def test_event_and_severity_bands_toggle_into_the_chart_config():
 
     main = next(f for f in at.get("iframe") if "hc-main-chart" in f.proto.srcdoc)
     cfg = _chart_config(main.proto.srcdoc, "hc-main-chart")
-    event_labels = {b["label"]["text"] for b in cfg["xAxis"]["plotBands"]}
+    assert len(cfg["xAxis"]["plotBands"]) == 4  # shaded regions only, no Highcharts `label`
+    assert all("label" not in b for b in cfg["xAxis"]["plotBands"])
+    # Event NAMES are a plain HTML/CSS overlay (see _event_label_data /
+    # _highcharts_main_chart's JS), not a Highcharts plotBand `label` -
+    # several attempts at the native option all broke in different ways
+    # (overlap, truncation, or clipping) - stored as our own `eventLabels`
+    # config key instead.
+    event_names = {item["text"] for item in cfg["eventLabels"]}
+    assert "COVID-19" in event_names
+
     severity_labels = {b["label"]["text"] for b in cfg["yAxis"][1]["plotBands"]}
     # Label text is a useHTML span (background box, for readability against
     # the chart lines behind it) - substring match, not exact equality.
-    assert any("COVID-19" in t for t in event_labels)
     assert any("Very high inflation" in t for t in severity_labels)
 
 

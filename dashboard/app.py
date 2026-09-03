@@ -103,125 +103,81 @@ def _yearly_groups(_long: pd.DataFrame) -> pd.DataFrame:
     return yearly_group_change_table(_long)
 
 
-# Rough px-per-character estimate for a 9px bold sans-serif label, used to
-# keep a rotated plotBand label's own rendered length from dipping into the
-# plot (see _event_label_y_offset). Deliberately generous (measured actual
-# widths live ranged ~4.1-5.3 px/char) - overestimating means a little extra
-# whitespace above the plot, underestimating means the label lands back on
-# the data, so this errs toward "too much clearance" on purpose.
-_EVENT_LABEL_PX_PER_CHAR = 5.5
-
-
-# Gap kept clear on each side of every label: below its bottom edge (down to
-# the plot's top edge) and above its top edge (up to the chart's own top,
-# y=0) - see _event_label_y_offset and _event_bands_margin_top.
-_EVENT_LABEL_GAP_BELOW = 4
-_EVENT_LABEL_GAP_ABOVE = 6
-
-
-def _event_label_y_offset(text: str) -> float:
-    """How far above the plot's own top edge (in `y` option units, i.e.
-    negative = up) a rotated -90 plotBand label's PIVOT needs to sit so its
-    own full rendered length stays clear of the plot, however long the text
-    is.
-
-    Verified live (dumping each label's actual SVG `transform`/`attrY` and
-    comparing against `chart.plotTop`) that Highcharts positions a rotated
-    plotBand label CENTERED on its pivot - `y` sets the pivot's distance
-    from the plot's top edge, and the label then extends *symmetrically* in
-    both directions from that pivot by half its own rendered length. A
-    uniform `y` for every label (this page's first two attempts) works only
-    for the label short enough to fit under that clearance; anything longer
-    ("Russia-Ukraine War", "Currency Devaluation") has its lower half - which
-    is half of a much longer label - dip straight through the plot's top
-    edge onto the CPI/MoM/YoY lines. The fix has to be per-label, sized to
-    each one's own text length, not a shared constant.
-    """
-    half_length = len(text) * _EVENT_LABEL_PX_PER_CHAR / 2
-    return -(half_length + _EVENT_LABEL_GAP_BELOW)
-
-
-def _event_bands_margin_top() -> int:
-    """How much top margin the tallest (longest-text) core-event label needs.
-
-    Centered-on-pivot cuts both ways: the SAME margin has to clear the
-    label's bottom (down to the plot, handled by `_event_label_y_offset`'s
-    gap) *and* its top (up to the chart's own y=0 edge - a first attempt
-    only accounted for the bottom, so "Currency Devaluation" rendered with
-    its top third silently clipped off above the visible chart, confirmed
-    live). That means the required margin scales with each label's FULL
-    rendered length, not half of it - used at `chart.marginTop`.
-    """
-    longest = max((e.get("short_name", e["name"]) for e in CORE_EVENTS), key=len)
-    full_length = len(longest) * _EVENT_LABEL_PX_PER_CHAR
-    return int(full_length + _EVENT_LABEL_GAP_BELOW + _EVENT_LABEL_GAP_ABOVE)
-
-
 def _event_plotbands(x_min: pd.Timestamp, x_max: pd.Timestamp) -> list[dict]:
     """Highcharts xAxis.plotBands for the 4 core events (COVID-19, the 2022
-    floods, the Russia-Ukraine war, the 2023 currency devaluation). The other
-    dated events (see the Global Events table) are deliberately left off the
-    chart to keep it readable.
+    floods, the Russia-Ukraine war, the 2023 currency devaluation) - the
+    shaded regions only. The other dated events (see the Global Events
+    table) are deliberately left off the chart to keep it readable.
 
-    Labels are vertical (rotation -90), matching the original Plotly design:
-    horizontal label text has a fixed pixel width that can collide with an
-    adjacent short-duration band's label even when their date ranges don't
-    overlap - vertical text sidesteps that entirely, and `_event_label_y_offset`
-    lifts each one (by its own length) into the chart's reserved top margin
-    (see `marginTop` at the call site) instead of printing on top of the
-    CPI/MoM/YoY lines. No row-based horizontal stagger is needed for these 4
-    events - each band's own natural position on the time axis already
-    separates them by more than one rotated label's ~10px width (verified
-    live); if a future event ever landed within ~10px of another, `x` would
-    need revisiting too, since it does NOT reliably shift a rotated label
-    sideways in this Highcharts build (verified live - it barely moved one).
+    No `label` here on purpose - see the history below. The NAMES are
+    rendered as a plain HTML/CSS overlay instead (see `_event_label_data`
+    and the JS in `_highcharts_main_chart`).
 
-    Plain SVG text (no `useHTML`), deliberately: `useHTML` + `rotation`
-    together made Highcharts constrain the label's (pre-rotation) box width
-    to the band's own on-screen pixel width, silently truncating anything
-    wider than a short-duration band with a literal "..." - verified live in
-    a real browser. Since these sit in the chart's own reserved top margin
-    (not over any data), a background box isn't needed for contrast either -
-    bold, dark text on the plain white margin is already legible.
+    Why not Highcharts's own plotBand `label` option (several attempts,
+    all verified live in a real browser and all with a genuine problem):
+    - A rotated (`rotation: -90`) label is positioned CENTERED on its pivot
+      and extends *symmetrically* in both directions by its own rendered
+      length - a single shared `y` offset is only ever correct for one
+      specific text length; short labels look fine, long ones ("Russia-
+      Ukraine War", "Currency Devaluation") dip into the plot below or get
+      clipped above, depending which way the offset was tuned.
+    - Per-label sizing (offsetting `y` by each label's own estimated
+      length) fixed that in principle, but the actual relationship between
+      Highcharts's rotated-label geometry and its真 rendered on-screen
+      position didn't match the documented pivot-plus-half-width model
+      closely enough to calibrate reliably - an attempt at a generous
+      empirical correction overshot and made `chart.marginTop` so large the
+      plot area collapsed to nothing.
+    - `useHTML` (for a background box, needed since these can land over the
+      CPI/MoM/YoY lines) combined with `rotation` made Highcharts constrain
+      the label to the band's own on-screen pixel width, silently
+      truncating short-duration bands ("Pakistan Floods" -> "Pa...").
+    - Horizontal placement is time-based by default (each band's own
+      position on the axis), which shrinks - and can overlap - as the
+      viewport narrows; two events close in time (2022 floods, Russia-
+      Ukraine war) need a viewport-independent fixed-pixel separation, which
+      a Highcharts-native label option doesn't provide on its own.
 
-    One more short-duration-band quirk, verified live: even without
-    `useHTML`, Highcharts still wraps plain SVG label text to fit the band's
-    own on-screen width - for "Pakistan Floods" (a ~3.5 month band), that
-    meant an unwanted 2-line wrap ("Pakistan"/"Floods"), which *doubled* the
-    rotated label's rendered width and collided with "Russia-Ukraine War"
-    right next to it. An explicit `style.width` (well over the longest
-    label) plus `textOverflow: "none"` overrides Highcharts's own
-    auto-computed band-width constraint, so every label stays one line.
+    A plain HTML overlay sidesteps all four: real `getBoundingClientRect()`
+    collision detection (not estimated text-pixel-width math) and CSS
+    `writing-mode: vertical-rl` (properly laid-out vertical text, no
+    rotation-pivot arithmetic) are both dramatically more robust than
+    fighting Highcharts's own rotated SVG label positioning.
     """
     bands = []
     for e in CORE_EVENTS:
         start, end = max(e["start"], x_min), min(e["end"], x_max)
         if start >= end:
             continue
-        text = e.get("short_name", e["name"])
         bands.append(
             {
                 "from": int(start.timestamp() * 1000),
                 "to": int(end.timestamp() * 1000),
                 "color": e["color"] + "38",  # ~22% alpha, matches the old Plotly opacity
-                "label": {
-                    "text": text,
-                    "style": {
-                        "fontSize": "9px",
-                        "color": "#333333",
-                        "fontWeight": "600",
-                        "whiteSpace": "nowrap",
-                        "width": "150px",
-                        "textOverflow": "none",
-                    },
-                    "rotation": -90,
-                    "verticalAlign": "top",
-                    "y": _event_label_y_offset(text),
-                    "x": 4,
-                },
             }
         )
     return bands
+
+
+def _event_label_data(x_min: pd.Timestamp, x_max: pd.Timestamp) -> list[dict]:
+    """[{x, text, title}, ...] for the 4 core events - plain data (not a
+    Highcharts option) consumed by the JS overlay in `_highcharts_main_chart`
+    that draws their names above the chart. `x` is each band's START date
+    (not center) in epoch ms, matching where `_event_plotbands` starts
+    shading."""
+    out = []
+    for e in CORE_EVENTS:
+        start, end = max(e["start"], x_min), min(e["end"], x_max)
+        if start >= end:
+            continue
+        out.append(
+            {
+                "x": int(start.timestamp() * 1000),
+                "text": e.get("short_name", e["name"]),
+                "title": e["description"],
+            }
+        )
+    return out
 
 
 def _severity_plotbands(y_lo: float, y_hi: float) -> list[dict]:
@@ -320,7 +276,9 @@ def _highcharts_stock(chart_id: str, config: dict, *, height: int = 420) -> None
 
 def _highcharts_main_chart(chart_id: str, config: dict, *, height: int = 520) -> None:
     """Embed the main Inflation Index & Change chart, with a custom zoom-
-    factor button row (1x/2x/5x/10x + Reset) in addition to drag-to-pan.
+    factor button row (1x/2x/5x/10x + Reset) in addition to drag-to-pan, and
+    (when `config["eventLabels"]` is non-empty) a plain HTML/CSS overlay
+    naming the major-event bands above the plot.
 
     Panning (`chart.panning.enabled`) and Highcharts Stock's default
     drag-to-zoom-a-rectangle are alternate behaviors for the same mouse-drag
@@ -331,6 +289,15 @@ def _highcharts_main_chart(chart_id: str, config: dict, *, height: int = 520) ->
     shows the last 1/Nth of the full time range - "10x" is the most
     detailed/recent slice). This doesn't fight the mouse-drag panning, the
     navigator scrollbar, or hover tooltips - they all operate independently.
+
+    The event-name overlay is plain HTML positioned via `xAxis.toPixels()`
+    (a documented, reliable Highcharts API - unlike its rotated plotBand
+    `label` option; see `_event_plotbands`'s docstring for the four separate
+    ways that broke). It redraws on the chart's own `redraw` event, so
+    labels track pan/zoom and disappear when their date scrolls off-screen,
+    and uses one real `getBoundingClientRect()` collision pass (actual
+    rendered pixels, not estimated text width) to keep adjacent labels from
+    overlapping at any viewport size.
     """
     spec_json = json.dumps(config)
     fn = chart_id.replace("-", "_")
@@ -343,7 +310,7 @@ def _highcharts_main_chart(chart_id: str, config: dict, *, height: int = 520) ->
             <button onclick="__zoom_{fn}(10)" class="hc-zoom-btn">10x</button>
             <button onclick="__reset_{fn}()" class="hc-zoom-btn" style="margin-left:10px;">Reset</button>
         </div>
-        <div id="{chart_id}" style="width:100%;height:{height - 46}px;"></div>
+        <div id="{chart_id}" style="width:100%;height:{height - 46}px;position:relative;"></div>
         <style>
             .hc-zoom-btn {{
                 font: 12px -apple-system, sans-serif; padding: 4px 12px; margin-right: 4px;
@@ -366,6 +333,50 @@ def _highcharts_main_chart(chart_id: str, config: dict, *, height: int = 520) ->
                 var ext = ax.getExtremes();
                 ax.setExtremes(ext.dataMin, ext.dataMax);
             }}
+            function __renderEventLabels_{fn}() {{
+                var chart = __chart_{fn};
+                var container = document.getElementById('{chart_id}');
+                var old = container.querySelector('.hc-event-label-overlay');
+                if (old) old.remove();
+                var items = chart.options.eventLabels || [];
+                if (!items.length) return;
+                var overlay = document.createElement('div');
+                overlay.className = 'hc-event-label-overlay';
+                overlay.style.cssText = 'position:absolute; left:0; top:0; width:100%; '
+                    + 'height:' + chart.plotTop + 'px; pointer-events:none; overflow:hidden;';
+                container.appendChild(overlay);
+                var ax = chart.xAxis[0];
+                var ext = ax.getExtremes();
+                var divs = [];
+                items.forEach(function(ev) {{
+                    if (ev.x < ext.min || ev.x > ext.max) return;  // off-screen - skip
+                    var px = ax.toPixels(ev.x, false);
+                    var div = document.createElement('div');
+                    div.textContent = ev.text;
+                    if (ev.title) div.title = ev.title;
+                    div.style.cssText = 'position:absolute; top:4px; left:' + px + 'px; '
+                        + 'writing-mode:vertical-rl; font-size:9px; font-weight:600; '
+                        + 'color:#333333; white-space:nowrap; pointer-events:auto; cursor:help;';
+                    overlay.appendChild(div);
+                    divs.push(div);
+                }});
+                // Real collision detection (actual rendered boxes), not
+                // estimated text width - push each label right of the one
+                // before it if they'd otherwise touch, regardless of length
+                // or viewport size.
+                divs.sort(function(a, b) {{ return parseFloat(a.style.left) - parseFloat(b.style.left); }});
+                for (var i = 1; i < divs.length; i++) {{
+                    var prevRect = divs[i - 1].getBoundingClientRect();
+                    var curRect = divs[i].getBoundingClientRect();
+                    var gapNeeded = 4;
+                    if (curRect.left < prevRect.right + gapNeeded) {{
+                        var shift = (prevRect.right + gapNeeded) - curRect.left;
+                        divs[i].style.left = (parseFloat(divs[i].style.left) + shift) + 'px';
+                    }}
+                }}
+            }}
+            __renderEventLabels_{fn}();
+            Highcharts.addEvent(__chart_{fn}, 'redraw', __renderEventLabels_{fn});
         </script>
         """,
         height=height,
@@ -472,12 +483,13 @@ _highcharts_main_chart(
         "chart": {
             "backgroundColor": "transparent",
             "style": {"fontFamily": "inherit"},
-            # Reserve headroom above the plot for the event bands' vertical
-            # labels (see _event_plotbands/_event_label_y_offset) so they
-            # print above the CPI/MoM/YoY lines instead of on top of them -
-            # sized to the single longest label, since each one is
-            # positioned by its own length already. Flat 20px with bands off.
-            "marginTop": _event_bands_margin_top() if show_event_bands else 20,
+            # Reserve headroom above the plot for the event-name overlay (see
+            # _event_label_data and the JS below) so it prints above the
+            # CPI/MoM/YoY lines instead of on top of them. Fixed, generous
+            # value - comfortably fits "Currency Devaluation" (the longest of
+            # the 4 core event names) in vertical CSS writing-mode at 9px.
+            # Flat 20px with bands off.
+            "marginTop": 150 if show_event_bands else 20,
             # Plain mouse-drag PANS (spec: "click and drag ... to move
             # through the time series") rather than the Highcharts Stock
             # default of drag-to-zoom-a-rectangle - the two are alternate
@@ -506,6 +518,11 @@ _highcharts_main_chart(
             "ordinal": False,
             "plotBands": _event_plotbands(x_min, x_max) if show_event_bands else [],
         },
+        # Not a Highcharts option - our own data, read by the JS overlay in
+        # _highcharts_main_chart to draw the 4 core events' NAMES above the
+        # chart (see _event_plotbands's docstring for why they aren't drawn
+        # via Highcharts's own plotBand `label` option).
+        "eventLabels": _event_label_data(x_min, x_max) if show_event_bands else [],
         "yAxis": [
             {
                 "title": {"text": "Index (2015-16 = 100)", "style": AXIS_TITLE_STYLE},
