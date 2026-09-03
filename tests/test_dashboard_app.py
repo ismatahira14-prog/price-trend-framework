@@ -19,6 +19,9 @@ APP_PATH = Path(__file__).resolve().parents[1] / "dashboard" / "app.py"
 HEATMAP_PATH = (
     Path(__file__).resolve().parents[1] / "dashboard" / "pages" / "4_Inflation_Heatmap.py"
 )
+# Written as a side effect of running app.py (see _write_hc_main_chart_component) -
+# a real file on disk, safe to read directly once `at.run()` has executed.
+MAIN_CHART_COMPONENT_HTML = APP_PATH.parent / "components" / "hc_main_chart" / "index.html"
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -27,39 +30,18 @@ def _require_snapshot():
         pytest.skip("no duckdb snapshot yet - run `python -m pricelab.ingest --all` first")
 
 
-def _chart_config(srcdoc: str, chart_id: str) -> dict:
-    """Pull the JSON config back out of an embedded Highcharts <script> block.
-
-    Neither "first ');'" nor "last ');'" is safe here: band labels embed CSS
-    (e.g. "rgba(255,255,255,0.85);") containing a literal "');"-like
-    substring (breaks non-greedy), and the main chart's script also defines
-    zoom/reset functions *after* the stockChart(...) call (breaks greedy).
-    A real brace-depth scan from the opening "{" is the only robust way to
-    find the matching close, respecting quoted/escaped JSON strings.
+def _main_chart_config(at) -> dict:
+    """Pull the Highcharts config out of the `hc_main_chart` custom
+    component. AppTest has no dedicated wrapper for a component instance
+    (it falls back to a generic `UnknownElement`, found via `at.get(
+    "component_instance")`) - but the args passed to it are plain JSON
+    (`proto.json_args`, `{"config": {...}, "height": ..., "key": ...}`), far
+    simpler to read than the iframe-embedded-script approach the M/M and
+    Y/Y comparison charts still need.
     """
-    prefix = f"Highcharts.stockChart('{chart_id}', "
-    start = srcdoc.index(prefix) + len(prefix)
-    assert srcdoc[start] == "{", f"expected a JSON object right after {prefix!r}"
-    depth, in_string, escaped = 0, False, False
-    for i in range(start, len(srcdoc)):
-        ch = srcdoc[i]
-        if in_string:
-            if escaped:
-                escaped = False
-            elif ch == "\\":
-                escaped = True
-            elif ch == '"':
-                in_string = False
-            continue
-        if ch == '"':
-            in_string = True
-        elif ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return json.loads(srcdoc[start : i + 1])
-    raise AssertionError(f"never found the matching close brace for {chart_id!r}")
+    instances = at.get("component_instance")
+    main = next(c for c in instances if c.proto.component_name == "app.hc_main_chart")
+    return json.loads(main.proto.json_args)["config"]
 
 
 def test_home_page_loads_without_exceptions():
@@ -72,10 +54,15 @@ def test_home_page_loads_without_exceptions():
     # Spike-section breakdown + month-by-month + year-by-year + Global Events.
     assert len(at.dataframe) == 4
     # The 12-group breakdown bar chart is the one Plotly chart left on this
-    # page; the Inflation Index & Change and M/M/Y/Y comparison charts are
-    # Highcharts (embedded via st.components.v1.html -> `iframe` in AppTest).
+    # page. The Inflation Index & Change chart is a real custom component
+    # (`hc_main_chart`, so it can send a click back into Python) - AppTest
+    # has no dedicated wrapper for that, it shows up generically via
+    # `at.get("component_instance")`. The M/M and Y/Y comparison charts
+    # don't need a return channel, so they're still plain Highcharts via
+    # st.components.v1.html -> `iframe` in AppTest.
     assert len(at.get("plotly_chart")) == 1
-    assert len(at.get("iframe")) == 3
+    assert len(at.get("component_instance")) == 1
+    assert len(at.get("iframe")) == 2
 
 
 def test_inflation_heatmap_page_loads_with_group_columns_and_period_rows():
@@ -123,9 +110,7 @@ def test_main_chart_full_width_with_pan_and_zoom_controls():
     # if the 9:3 split were still there, it'd be 2 higher.
     assert len(at.columns) == 8
 
-    main = next(f for f in at.get("iframe") if "hc-main-chart" in f.proto.srcdoc)
-    srcdoc = main.proto.srcdoc
-    cfg = _chart_config(srcdoc, "hc-main-chart")
+    cfg = _main_chart_config(at)
 
     # Drag pans (not the Highcharts Stock default of drag-to-zoom-a-rectangle).
     # panKey/zooming are deliberately left unset rather than set to null -
@@ -138,22 +123,20 @@ def test_main_chart_full_width_with_pan_and_zoom_controls():
     assert cfg["chart"]["panning"] == {"enabled": True, "type": "x"}
     assert cfg["xAxis"]["ordinal"] is False
 
-    # 1x/2x/5x/10x + Reset zoom-factor buttons, wired to this chart's own instance.
-    for call in (
-        "__zoom_hc_main_chart(1)", "__zoom_hc_main_chart(2)",
-        "__zoom_hc_main_chart(5)", "__zoom_hc_main_chart(10)",
-        "__reset_hc_main_chart()",
-    ):
-        assert call in srcdoc
-
-    assert "Highcharts.stockChart" in srcdoc
-    assert "code.highcharts.com" not in srcdoc  # bundled locally, not loaded from a CDN
+    # 1x/2x/5x/10x + Reset zoom-factor buttons and the click->setComponentValue
+    # wiring live in the component's static frontend file, not per-render
+    # JSON args - written as a side effect of app.py running (see
+    # _write_hc_main_chart_component), so it's a real file on disk by now.
+    component_html = MAIN_CHART_COMPONENT_HTML.read_text(encoding="utf-8")
+    for needle in ("function __zoom(", "function __reset(", "setValue(ymd)"):
+        assert needle in component_html
+    assert "Highcharts.stockChart" in component_html
+    assert "code.highcharts.com" not in component_html  # bundled locally, not loaded from a CDN
 
 
 def test_event_and_severity_bands_toggle_into_the_chart_config():
     at = AppTest.from_file(str(APP_PATH), default_timeout=60).run()
-    main = next(f for f in at.get("iframe") if "hc-main-chart" in f.proto.srcdoc)
-    cfg = _chart_config(main.proto.srcdoc, "hc-main-chart")
+    cfg = _main_chart_config(at)
     assert cfg["xAxis"]["plotBands"] == []  # off by default
     assert cfg["yAxis"][1]["plotBands"] == []
     assert cfg["eventLabels"] == []
@@ -165,15 +148,14 @@ def test_event_and_severity_bands_toggle_into_the_chart_config():
     at = at.run()
     assert not at.exception, [e.message for e in at.exception]
 
-    main = next(f for f in at.get("iframe") if "hc-main-chart" in f.proto.srcdoc)
-    cfg = _chart_config(main.proto.srcdoc, "hc-main-chart")
+    cfg = _main_chart_config(at)
     assert len(cfg["xAxis"]["plotBands"]) == 4  # shaded regions only, no Highcharts `label`
     assert all("label" not in b for b in cfg["xAxis"]["plotBands"])
     # Event NAMES are a plain HTML/CSS overlay (see _event_label_data /
-    # _highcharts_main_chart's JS), not a Highcharts plotBand `label` -
-    # several attempts at the native option all broke in different ways
-    # (overlap, truncation, or clipping) - stored as our own `eventLabels`
-    # config key instead.
+    # _write_hc_main_chart_component's JS), not a Highcharts plotBand
+    # `label` - several attempts at the native option all broke in
+    # different ways (overlap, truncation, or clipping) - stored as our
+    # own `eventLabels` config key instead.
     event_names = {item["text"] for item in cfg["eventLabels"]}
     assert "COVID-19" in event_names
 

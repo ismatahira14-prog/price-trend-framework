@@ -38,3 +38,8 @@ Thumbs.db
 .ruff_cache/
 .coverage
 htmlcov/
+
+# Generated Streamlit custom-component frontend - written fresh on every app
+# startup by dashboard/app.py's _write_hc_main_chart_component(), not
+# hand-authored, so it doesn't belong in version control.
+dashboard/components/hc_main_chart/index.html

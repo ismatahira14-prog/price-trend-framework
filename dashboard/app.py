@@ -12,12 +12,20 @@ computed rank among the 12 groups that period, NOT an official basket-weight
 contribution percentage (this project's data has no official CPI weights).
 
 CHARTING NOTE: the main Inflation Index & Change chart is Highcharts (full-
-width, drag-to-pan, 1x/2x/5x/10x zoom) - it no longer drives "What caused the
-inflation spike?" via a click, since Highcharts has no first-party Streamlit
-click<->Python wiring the way Plotly's `on_select` does. That section instead
-uses its own period picker (a plain selectbox), independent of the chart
-above it. The 12-group breakdown bar chart in that section, and the M/M vs
-Y/Y comparison charts further down, are otherwise unchanged.
+width, drag-to-pan, 1x/2x/5x/10x zoom), embedded via a small hand-written
+custom Streamlit component (`hc_main_chart`, see `dashboard/components/
+hc_main_chart/`) rather than `st.components.v1.html` - unlike that, a real
+component can send a value back to Python (`Streamlit.setComponentValue`),
+which is what lets clicking a point still jump to "What caused the inflation
+spike?" with that month selected, same as the old Plotly chart's `on_select`
+did. No build step/npm/React - the Streamlit Components JS protocol is just
+a few `postMessage` calls, small enough to hand-write directly (a real page
+navigation was tried first and doesn't work: Streamlit's `components.html`
+iframe sandbox has no `allow-top-navigation`, confirmed live). The period
+picker (a plain selectbox) still works independently too. The 12-group
+breakdown bar chart in that section, and the M/M vs Y/Y comparison charts
+further down (still plain `st.components.v1.html`, no click behavior needed
+there), are otherwise unchanged.
 
 The header banner embeds `dashboard/pbs_logo.jpg` (user-supplied).
 """
@@ -73,6 +81,7 @@ st.set_page_config(
 GROUPS_12 = CPI_GROUP_ORDER[1:]  # everything except "General" - the 12 COICOP groups
 CORE_EVENTS = [e for e in EVENTS if e["core_chart_event"]]
 SOURCE_NOTE = "Source: Pakistan Bureau of Statistics (PBS) Consumer Price Index · base 2015-16 = 100"
+ANCHOR_ID = "spike-section-anchor"  # scroll target for the main chart's click-to-navigate
 
 # Highcharts's default axis-label color is a light theme-neutral gray, tuned
 # for a plain white card - against this page's chart cards it reads as
@@ -274,113 +283,190 @@ def _highcharts_stock(chart_id: str, config: dict, *, height: int = 420) -> None
     )
 
 
-def _highcharts_main_chart(chart_id: str, config: dict, *, height: int = 520) -> None:
-    """Embed the main Inflation Index & Change chart, with a custom zoom-
-    factor button row (1x/2x/5x/10x + Reset) in addition to drag-to-pan, and
-    (when `config["eventLabels"]` is non-empty) a plain HTML/CSS overlay
-    naming the major-event bands above the plot.
+_HC_MAIN_CHART_DIR = Path(__file__).parent / "components" / "hc_main_chart"
 
-    Panning (`chart.panning.enabled`) and Highcharts Stock's default
-    drag-to-zoom-a-rectangle are alternate behaviors for the same mouse-drag
-    gesture, not simultaneous - `config` sets panning on and zooming off so a
-    plain drag pans (per spec: "click and drag ... to move through the time
-    series"), and the explicit buttons below cover "zoom factor" instead,
-    via `xAxis.setExtremes` anchored to the most recent date (each factor
-    shows the last 1/Nth of the full time range - "10x" is the most
-    detailed/recent slice). This doesn't fight the mouse-drag panning, the
-    navigator scrollbar, or hover tooltips - they all operate independently.
 
-    The event-name overlay is plain HTML positioned via `xAxis.toPixels()`
-    (a documented, reliable Highcharts API - unlike its rotated plotBand
-    `label` option; see `_event_plotbands`'s docstring for the four separate
-    ways that broke). It redraws on the chart's own `redraw` event, so
-    labels track pan/zoom and disappear when their date scrolls off-screen,
-    and uses one real `getBoundingClientRect()` collision pass (actual
-    rendered pixels, not estimated text width) to keep adjacent labels from
-    overlapping at any viewport size.
+@st.cache_resource
+def _write_hc_main_chart_component() -> str:
+    """Write the static frontend for the `hc_main_chart` custom Streamlit
+    component and return its directory (for `components.declare_component`).
+
+    Unlike `st.components.v1.html` (display-only, no way back to Python),
+    a real component can call `Streamlit.setComponentValue(...)`, which is
+    what lets clicking a chart point feed a value back into Python - the
+    same job Plotly's `on_select` did for the old chart. No build step/npm/
+    React needed: the Streamlit Components JS protocol is just a handful of
+    documented `postMessage` calls (componentReady / render / setComponentValue
+    / setFrameHeight), small enough to hand-write directly below rather than
+    pull in a whole component-scaffolding toolchain for it.
+
+    This still has all the same pieces `_highcharts_stock`'s main-chart
+    predecessor had - the 1x/2x/5x/10x + Reset zoom buttons, and the plain-
+    HTML event-name overlay (see `_event_plotbands`'s docstring for why
+    that's not a Highcharts plotBand `label`) - just packaged as a real
+    component's frontend instead of a `components.html` payload, and with
+    an added click handler that reports the clicked point's month back to
+    Python instead of doing nothing with it.
+
+    A real page navigation was tried first for click-to-navigate (`?selected_
+    period=<month>` + `st.query_params`) and confirmed live NOT to work:
+    `components.html`'s iframe sandbox has no `allow-top-navigation` (or the
+    user-activation variant), so both a direct `location.href` assignment and
+    a same-document `history.pushState` + manually dispatched `popstate` were
+    silently ignored by the browser / not picked up by Streamlit's frontend.
+    A declared component's `setComponentValue` sidesteps the whole issue -
+    it's a `postMessage`, which isn't subject to the sandbox's navigation
+    flags at all.
     """
-    spec_json = json.dumps(config)
-    fn = chart_id.replace("-", "_")
-    components.html(
-        f"""
-        <div style="margin-bottom:8px;">
-            <button onclick="__zoom_{fn}(1)" class="hc-zoom-btn">1x</button>
-            <button onclick="__zoom_{fn}(2)" class="hc-zoom-btn">2x</button>
-            <button onclick="__zoom_{fn}(5)" class="hc-zoom-btn">5x</button>
-            <button onclick="__zoom_{fn}(10)" class="hc-zoom-btn">10x</button>
-            <button onclick="__reset_{fn}()" class="hc-zoom-btn" style="margin-left:10px;">Reset</button>
-        </div>
-        <div id="{chart_id}" style="width:100%;height:{height - 46}px;position:relative;"></div>
-        <style>
-            .hc-zoom-btn {{
-                font: 12px -apple-system, sans-serif; padding: 4px 12px; margin-right: 4px;
-                border: 1px solid #d0d0d0; border-radius: 4px; background: #fafafa;
-                color: #333; cursor: pointer;
+    _HC_MAIN_CHART_DIR.mkdir(parents=True, exist_ok=True)
+    html = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body {{ margin: 0; padding: 0; font-family: -apple-system, sans-serif; overflow: hidden; }}
+  .hc-zoom-btn {{
+      font: 12px -apple-system, sans-serif; padding: 4px 12px; margin-right: 4px;
+      border: 1px solid #d0d0d0; border-radius: 4px; background: #fafafa;
+      color: #333; cursor: pointer;
+  }}
+  .hc-zoom-btn:hover {{ background: #eef2f6; border-color: #a8c5e0; }}
+</style>
+</head>
+<body>
+<div style="margin-bottom:8px;">
+    <button onclick="__zoom(1)" class="hc-zoom-btn">1x</button>
+    <button onclick="__zoom(2)" class="hc-zoom-btn">2x</button>
+    <button onclick="__zoom(5)" class="hc-zoom-btn">5x</button>
+    <button onclick="__zoom(10)" class="hc-zoom-btn">10x</button>
+    <button onclick="__reset()" class="hc-zoom-btn" style="margin-left:10px;">Reset</button>
+</div>
+<div id="hc-main-chart" style="width:100%;position:relative;"></div>
+<script>{_highstock_js()}</script>
+<script>
+    // ---- Minimal hand-written Streamlit Components JS protocol - see
+    // https://docs.streamlit.io/develop/concepts/custom-components/create
+    function sendToStreamlit(type, data) {{
+        window.parent.postMessage(Object.assign({{isStreamlitMessage: true, type: type}}, data), "*");
+    }}
+    function setFrameHeight(h) {{ sendToStreamlit("streamlit:setFrameHeight", {{height: h}}); }}
+    function setValue(v) {{ sendToStreamlit("streamlit:setComponentValue", {{value: v, dataType: "json"}}); }}
+
+    var __chart = null;
+
+    function __zoom(factor) {{
+        if (!__chart) return;
+        var ax = __chart.xAxis[0];
+        var ext = ax.getExtremes();
+        var span = (ext.dataMax - ext.dataMin) / factor;
+        ax.setExtremes(Math.max(ext.dataMin, ext.dataMax - span), ext.dataMax);
+    }}
+    function __reset() {{
+        if (!__chart) return;
+        var ax = __chart.xAxis[0];
+        var ext = ax.getExtremes();
+        ax.setExtremes(ext.dataMin, ext.dataMax);
+    }}
+
+    function __renderEventLabels() {{
+        var chart = __chart;
+        var container = document.getElementById('hc-main-chart');
+        var old = container.querySelector('.hc-event-label-overlay');
+        if (old) old.remove();
+        var items = chart.options.eventLabels || [];
+        if (!items.length) return;
+        var overlay = document.createElement('div');
+        overlay.className = 'hc-event-label-overlay';
+        overlay.style.cssText = 'position:absolute; left:0; top:0; width:100%; '
+            + 'height:' + chart.plotTop + 'px; pointer-events:none; overflow:hidden;';
+        container.appendChild(overlay);
+        var ax = chart.xAxis[0];
+        var ext = ax.getExtremes();
+        var divs = [];
+        items.forEach(function(ev) {{
+            if (ev.x < ext.min || ev.x > ext.max) return;  // off-screen - skip
+            var px = ax.toPixels(ev.x, false);
+            var div = document.createElement('div');
+            div.textContent = ev.text;
+            if (ev.title) div.title = ev.title;
+            div.style.cssText = 'position:absolute; top:4px; left:' + px + 'px; '
+                + 'writing-mode:vertical-rl; font-size:9px; font-weight:600; '
+                + 'color:#333333; white-space:nowrap; pointer-events:auto; cursor:help;';
+            overlay.appendChild(div);
+            divs.push(div);
+        }});
+        // Real collision detection (actual rendered boxes), not estimated
+        // text width - push each label right of the one before it if
+        // they'd otherwise touch, regardless of length or viewport size.
+        divs.sort(function(a, b) {{ return parseFloat(a.style.left) - parseFloat(b.style.left); }});
+        for (var i = 1; i < divs.length; i++) {{
+            var prevRect = divs[i - 1].getBoundingClientRect();
+            var curRect = divs[i].getBoundingClientRect();
+            var gapNeeded = 10;
+            if (curRect.left < prevRect.right + gapNeeded) {{
+                var shift = (prevRect.right + gapNeeded) - curRect.left;
+                divs[i].style.left = (parseFloat(divs[i].style.left) + shift) + 'px';
             }}
-            .hc-zoom-btn:hover {{ background: #eef2f6; border-color: #a8c5e0; }}
-        </style>
-        <script>{_highstock_js()}</script>
-        <script>
-            var __chart_{fn} = Highcharts.stockChart('{chart_id}', {spec_json});
-            function __zoom_{fn}(factor) {{
-                var ax = __chart_{fn}.xAxis[0];
-                var ext = ax.getExtremes();
-                var span = (ext.dataMax - ext.dataMin) / factor;
-                ax.setExtremes(Math.max(ext.dataMin, ext.dataMax - span), ext.dataMax);
-            }}
-            function __reset_{fn}() {{
-                var ax = __chart_{fn}.xAxis[0];
-                var ext = ax.getExtremes();
-                ax.setExtremes(ext.dataMin, ext.dataMax);
-            }}
-            function __renderEventLabels_{fn}() {{
-                var chart = __chart_{fn};
-                var container = document.getElementById('{chart_id}');
-                var old = container.querySelector('.hc-event-label-overlay');
-                if (old) old.remove();
-                var items = chart.options.eventLabels || [];
-                if (!items.length) return;
-                var overlay = document.createElement('div');
-                overlay.className = 'hc-event-label-overlay';
-                overlay.style.cssText = 'position:absolute; left:0; top:0; width:100%; '
-                    + 'height:' + chart.plotTop + 'px; pointer-events:none; overflow:hidden;';
-                container.appendChild(overlay);
-                var ax = chart.xAxis[0];
-                var ext = ax.getExtremes();
-                var divs = [];
-                items.forEach(function(ev) {{
-                    if (ev.x < ext.min || ev.x > ext.max) return;  // off-screen - skip
-                    var px = ax.toPixels(ev.x, false);
-                    var div = document.createElement('div');
-                    div.textContent = ev.text;
-                    if (ev.title) div.title = ev.title;
-                    div.style.cssText = 'position:absolute; top:4px; left:' + px + 'px; '
-                        + 'writing-mode:vertical-rl; font-size:9px; font-weight:600; '
-                        + 'color:#333333; white-space:nowrap; pointer-events:auto; cursor:help;';
-                    overlay.appendChild(div);
-                    divs.push(div);
-                }});
-                // Real collision detection (actual rendered boxes), not
-                // estimated text width - push each label right of the one
-                // before it if they'd otherwise touch, regardless of length
-                // or viewport size.
-                divs.sort(function(a, b) {{ return parseFloat(a.style.left) - parseFloat(b.style.left); }});
-                for (var i = 1; i < divs.length; i++) {{
-                    var prevRect = divs[i - 1].getBoundingClientRect();
-                    var curRect = divs[i].getBoundingClientRect();
-                    var gapNeeded = 4;
-                    if (curRect.left < prevRect.right + gapNeeded) {{
-                        var shift = (prevRect.right + gapNeeded) - curRect.left;
-                        divs[i].style.left = (parseFloat(divs[i].style.left) + shift) + 'px';
-                    }}
-                }}
-            }}
-            __renderEventLabels_{fn}();
-            Highcharts.addEvent(__chart_{fn}, 'redraw', __renderEventLabels_{fn});
-        </script>
-        """,
-        height=height,
-    )
+        }}
+    }}
+
+    function __buildChart(args) {{
+        var height = args.height || 520;
+        var chartDiv = document.getElementById('hc-main-chart');
+        chartDiv.style.height = (height - 46) + 'px';
+        if (__chart) {{ __chart.destroy(); __chart = null; }}
+        __chart = Highcharts.stockChart('hc-main-chart', args.config);
+        __chart.update({{plotOptions: {{series: {{cursor: 'pointer'}}}}}}, false);
+        // Chart-level click (not per-series): a series' own 'click' event
+        // only fires when the click lands close to that series's actual
+        // rendered line/area - with 3 series on very different scales (CPI
+        // 0-300ish vs MoM/YoY roughly -25 to +30), most of the plot area
+        // isn't "close" to any of them, so most clicks were silently
+        // swallowed (verified live - clicking away from a line produced
+        // zero setValue calls). `chart.events.click` fires anywhere in the
+        // plot and hands back the x-axis VALUE under the cursor directly
+        // via `e.xAxis[0].value`, matching "click anywhere on the
+        // timeline" rather than "click exactly on a data point".
+        Highcharts.addEvent(__chart, 'click', function(e) {{
+            if (!e.xAxis || !e.xAxis[0]) return;
+            var d = new Date(e.xAxis[0].value);
+            var ymd = d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-01';
+            setValue(ymd);
+        }});
+        __renderEventLabels();
+        Highcharts.addEvent(__chart, 'redraw', __renderEventLabels);
+        setFrameHeight(height);
+    }}
+
+    function onRender(event) {{
+        if (!event.data || event.data.type !== "streamlit:render") return;
+        __buildChart(event.data.args);
+    }}
+    window.addEventListener("message", onRender);
+    sendToStreamlit("streamlit:componentReady", {{apiVersion: 1}});
+</script>
+</body>
+</html>
+"""
+    (_HC_MAIN_CHART_DIR / "index.html").write_text(html, encoding="utf-8")
+    return str(_HC_MAIN_CHART_DIR)
+
+
+_hc_main_chart_component = components.declare_component(
+    "hc_main_chart", path=_write_hc_main_chart_component()
+)
+
+
+def hc_main_chart(config: dict, *, height: int = 520, key: str | None = None) -> str | None:
+    """Call the `hc_main_chart` custom component. Returns the clicked
+    point's month as an ISO date string if the user has clicked a point on
+    the chart, else None - exactly like the old Plotly chart's `on_select`
+    return value, just shaped differently. Like that old value, Streamlit
+    keeps returning the SAME clicked value on every subsequent rerun until a
+    NEW point is clicked - dedupe against the last-seen value (see the call
+    site) before reacting to it, the same way the old `_register_click` did.
+    """
+    return _hc_main_chart_component(config=config, height=height, key=key, default=None)
 
 
 # ------------------------------------------------------------------------- #
@@ -477,8 +563,7 @@ y_hi = max(ct["mom_pct"].max(skipna=True), ct["yoy_pct"].max(skipna=True))
 pad = (y_hi - y_lo) * 0.08 or 1.0
 y_lo, y_hi = y_lo - pad, y_hi + pad
 
-_highcharts_main_chart(
-    "hc-main-chart",
+_main_chart_clicked = hc_main_chart(
     {
         "chart": {
             "backgroundColor": "transparent",
@@ -570,7 +655,31 @@ _highcharts_main_chart(
             },
         ],
     },
+    key="hc-main-chart",
 )
+
+# Dedupe against the last-seen click - same pattern the old Plotly chart's
+# `_register_click` used, since a component keeps returning the SAME value
+# on every subsequent rerun (e.g. toggling a checkbox below) until a NEW
+# point is clicked, not just once.
+if _main_chart_clicked and _main_chart_clicked != st.session_state.get("_last_main_chart_click"):
+    st.session_state["_last_main_chart_click"] = _main_chart_clicked
+    try:
+        _clicked_ts = pd.Timestamp(_main_chart_clicked)
+        _nearest = ct.index[ct.index.get_indexer([_clicked_ts], method="nearest")[0]]
+        st.session_state["selected_period"] = _nearest
+        st.session_state["period_picker"] = _nearest
+        st.session_state["_trigger_scroll"] = True
+        # A monotonic counter, not just a bool: components.html's iframe only
+        # re-executes its <script> when its content actually changes - a
+        # static script string worked once (first click) then silently did
+        # nothing on every later click, since Streamlit saw identical srcdoc
+        # content and didn't reload the iframe (confirmed live). Embedding
+        # this ever-increasing number in the script (below) guarantees the
+        # content differs on every genuine click.
+        st.session_state["_scroll_nonce"] = st.session_state.get("_scroll_nonce", 0) + 1
+    except (ValueError, TypeError, IndexError):
+        pass
 
 if show_event_bands:
     _legend_chips = "".join(
@@ -584,6 +693,25 @@ if show_event_bands:
 st.divider()
 
 # ------------------------------------------------------ what caused the spike -
+st.markdown(f'<div id="{ANCHOR_ID}"></div>', unsafe_allow_html=True)
+if st.session_state.get("_trigger_scroll"):
+    components.html(
+        f"""
+        <script>
+            // nonce {st.session_state.get("_scroll_nonce", 0)} - forces this
+            // iframe's content to differ from the last one, see the comment
+            // where _scroll_nonce is incremented
+            setTimeout(function() {{
+                var doc = window.parent.document;
+                var el = doc.getElementById('{ANCHOR_ID}');
+                if (el) {{ el.scrollIntoView({{behavior: 'smooth', block: 'start'}}); }}
+            }}, 200);
+        </script>
+        """,
+        height=1,
+    )
+    st.session_state["_trigger_scroll"] = False
+
 st.session_state.setdefault("selected_period", ct.index[-1])
 selected = st.session_state["selected_period"]
 options = list(ct.index[::-1])
