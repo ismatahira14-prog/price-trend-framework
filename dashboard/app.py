@@ -103,20 +103,58 @@ def _yearly_groups(_long: pd.DataFrame) -> pd.DataFrame:
     return yearly_group_change_table(_long)
 
 
-def _pack_event_rows(events: list[dict]) -> list[tuple[dict, int]]:
-    """Greedy interval scheduling: only give two events the same label row if
-    their date ranges don't overlap, so labels never collide."""
-    row_end: list[pd.Timestamp] = []
-    packed: list[tuple[dict, int]] = []
-    for e in sorted(events, key=lambda e: e["start"]):
-        row = next((r for r, end in enumerate(row_end) if end < e["start"]), None)
-        if row is None:
-            row = len(row_end)
-            row_end.append(e["end"])
-        else:
-            row_end[row] = e["end"]
-        packed.append((e, row))
-    return packed
+# Rough px-per-character estimate for a 9px bold sans-serif label, used to
+# keep a rotated plotBand label's own rendered length from dipping into the
+# plot (see _event_label_y_offset). Deliberately generous (measured actual
+# widths live ranged ~4.1-5.3 px/char) - overestimating means a little extra
+# whitespace above the plot, underestimating means the label lands back on
+# the data, so this errs toward "too much clearance" on purpose.
+_EVENT_LABEL_PX_PER_CHAR = 5.5
+
+
+# Gap kept clear on each side of every label: below its bottom edge (down to
+# the plot's top edge) and above its top edge (up to the chart's own top,
+# y=0) - see _event_label_y_offset and _event_bands_margin_top.
+_EVENT_LABEL_GAP_BELOW = 4
+_EVENT_LABEL_GAP_ABOVE = 6
+
+
+def _event_label_y_offset(text: str) -> float:
+    """How far above the plot's own top edge (in `y` option units, i.e.
+    negative = up) a rotated -90 plotBand label's PIVOT needs to sit so its
+    own full rendered length stays clear of the plot, however long the text
+    is.
+
+    Verified live (dumping each label's actual SVG `transform`/`attrY` and
+    comparing against `chart.plotTop`) that Highcharts positions a rotated
+    plotBand label CENTERED on its pivot - `y` sets the pivot's distance
+    from the plot's top edge, and the label then extends *symmetrically* in
+    both directions from that pivot by half its own rendered length. A
+    uniform `y` for every label (this page's first two attempts) works only
+    for the label short enough to fit under that clearance; anything longer
+    ("Russia-Ukraine War", "Currency Devaluation") has its lower half - which
+    is half of a much longer label - dip straight through the plot's top
+    edge onto the CPI/MoM/YoY lines. The fix has to be per-label, sized to
+    each one's own text length, not a shared constant.
+    """
+    half_length = len(text) * _EVENT_LABEL_PX_PER_CHAR / 2
+    return -(half_length + _EVENT_LABEL_GAP_BELOW)
+
+
+def _event_bands_margin_top() -> int:
+    """How much top margin the tallest (longest-text) core-event label needs.
+
+    Centered-on-pivot cuts both ways: the SAME margin has to clear the
+    label's bottom (down to the plot, handled by `_event_label_y_offset`'s
+    gap) *and* its top (up to the chart's own y=0 edge - a first attempt
+    only accounted for the bottom, so "Currency Devaluation" rendered with
+    its top third silently clipped off above the visible chart, confirmed
+    live). That means the required margin scales with each label's FULL
+    rendered length, not half of it - used at `chart.marginTop`.
+    """
+    longest = max((e.get("short_name", e["name"]) for e in CORE_EVENTS), key=len)
+    full_length = len(longest) * _EVENT_LABEL_PX_PER_CHAR
+    return int(full_length + _EVENT_LABEL_GAP_BELOW + _EVENT_LABEL_GAP_ABOVE)
 
 
 def _event_plotbands(x_min: pd.Timestamp, x_max: pd.Timestamp) -> list[dict]:
@@ -128,11 +166,15 @@ def _event_plotbands(x_min: pd.Timestamp, x_max: pd.Timestamp) -> list[dict]:
     Labels are vertical (rotation -90), matching the original Plotly design:
     horizontal label text has a fixed pixel width that can collide with an
     adjacent short-duration band's label even when their date ranges don't
-    overlap - vertical text sidesteps that entirely, and a negative `y`
-    lifts them into the chart's reserved top margin (see `marginTop` at the
-    call site) instead of printing on top of the CPI/MoM/YoY lines. Row-
-    packing (by real date overlap) still staggers rows via `x` for the rare
-    case two events are genuinely close together.
+    overlap - vertical text sidesteps that entirely, and `_event_label_y_offset`
+    lifts each one (by its own length) into the chart's reserved top margin
+    (see `marginTop` at the call site) instead of printing on top of the
+    CPI/MoM/YoY lines. No row-based horizontal stagger is needed for these 4
+    events - each band's own natural position on the time axis already
+    separates them by more than one rotated label's ~10px width (verified
+    live); if a future event ever landed within ~10px of another, `x` would
+    need revisiting too, since it does NOT reliably shift a rotated label
+    sideways in this Highcharts build (verified live - it barely moved one).
 
     Plain SVG text (no `useHTML`), deliberately: `useHTML` + `rotation`
     together made Highcharts constrain the label's (pre-rotation) box width
@@ -142,26 +184,17 @@ def _event_plotbands(x_min: pd.Timestamp, x_max: pd.Timestamp) -> list[dict]:
     (not over any data), a background box isn't needed for contrast either -
     bold, dark text on the plain white margin is already legible.
 
-    Two more short-duration-band quirks, both verified live by inspecting
-    the rendered label boxes' actual pixel positions (not just inferred from
-    the docs):
-
-    - Even without `useHTML`, Highcharts still wraps plain SVG label text to
-      fit the band's own on-screen width - for "Pakistan Floods" (a ~3.5
-      month band), that meant an unwanted 2-line wrap ("Pakistan"/"Floods"),
-      which *doubled* the rotated label's rendered width and collided with
-      "Russia-Ukraine War" right next to it. `whiteSpace: "nowrap"` forces
-      one line regardless of the band's width.
-    - `x` turned out to barely shift a `rotation: -90` label horizontally in
-      this Highcharts build (each row's labels still landed only a few px
-      apart, at close to their band's own natural anchor position) - `y`
-      does, since for a vertically-rotated label `y` moves along what ends
-      up being the horizontal screen axis post-rotation. Row-packing now
-      staggers on `y`, generously (44px - measured live as enough to clear
-      one single-line 9px label's own rendered width plus a margin).
+    One more short-duration-band quirk, verified live: even without
+    `useHTML`, Highcharts still wraps plain SVG label text to fit the band's
+    own on-screen width - for "Pakistan Floods" (a ~3.5 month band), that
+    meant an unwanted 2-line wrap ("Pakistan"/"Floods"), which *doubled* the
+    rotated label's rendered width and collided with "Russia-Ukraine War"
+    right next to it. An explicit `style.width` (well over the longest
+    label) plus `textOverflow: "none"` overrides Highcharts's own
+    auto-computed band-width constraint, so every label stays one line.
     """
     bands = []
-    for e, row in _pack_event_rows(CORE_EVENTS):
+    for e in CORE_EVENTS:
         start, end = max(e["start"], x_min), min(e["end"], x_max)
         if start >= end:
             continue
@@ -183,7 +216,7 @@ def _event_plotbands(x_min: pd.Timestamp, x_max: pd.Timestamp) -> list[dict]:
                     },
                     "rotation": -90,
                     "verticalAlign": "top",
-                    "y": -6 + 44 * row,
+                    "y": _event_label_y_offset(text),
                     "x": 4,
                 },
             }
@@ -440,13 +473,11 @@ _highcharts_main_chart(
             "backgroundColor": "transparent",
             "style": {"fontFamily": "inherit"},
             # Reserve headroom above the plot for the event bands' vertical
-            # labels (see _event_plotbands) so they print above the CPI/MoM/
-            # YoY lines instead of getting clipped by the chart's own edge.
-            # Row-packing staggers labels HORIZONTALLY (via `x`), not
-            # vertically, so this only needs to fit the single longest label
-            # ("Currency Devaluation") at 9px, not scale with the row count.
-            # Flat 20px with bands off.
-            "marginTop": 145 if show_event_bands else 20,
+            # labels (see _event_plotbands/_event_label_y_offset) so they
+            # print above the CPI/MoM/YoY lines instead of on top of them -
+            # sized to the single longest label, since each one is
+            # positioned by its own length already. Flat 20px with bands off.
+            "marginTop": _event_bands_margin_top() if show_event_bands else 20,
             # Plain mouse-drag PANS (spec: "click and drag ... to move
             # through the time series") rather than the Highcharts Stock
             # default of drag-to-zoom-a-rectangle - the two are alternate
