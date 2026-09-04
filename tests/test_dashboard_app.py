@@ -40,7 +40,12 @@ def _main_chart_config(at) -> dict:
     chart still needs (see `_json_after`).
     """
     instances = at.get("component_instance")
-    main = next(c for c in instances if c.proto.component_name == "app.hc_main_chart")
+    # Declared in pricelab.dashboard.hc_main_chart (a normally-imported
+    # module, not dashboard/app.py itself) - see that module's docstring -
+    # so Streamlit names it "<module>.<name>", not "app.hc_main_chart".
+    main = next(
+        c for c in instances if c.proto.component_name == "pricelab.dashboard.hc_main_chart.hc_main_chart"
+    )
     return json.loads(main.proto.json_args)["config"]
 
 

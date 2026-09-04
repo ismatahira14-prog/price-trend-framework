@@ -1,4 +1,8 @@
-"""CPI Trends page - compare price-group indices over time."""
+"""CPI Trends page - compare price-group indices over time.
+
+Registered in dashboard/app.py's st.navigation() (the top nav bar) - that's
+also where st.set_page_config() now lives (once per app, not once per page).
+"""
 
 from __future__ import annotations
 
@@ -18,9 +22,6 @@ from pricelab.dashboard.theme import (  # noqa: E402
     MAX_SERIES,
 )
 
-st.set_page_config(
-    page_title="CPI Trends", page_icon="📈", layout="wide", initial_sidebar_state="collapsed"
-)
 st.title("CPI Trends by group")
 st.caption("Answers WHAT changed and WHEN, for the monthly CPI index (2015-16 = 100).")
 

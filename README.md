@@ -116,14 +116,30 @@ pip install -e ".[dashboard]"     # streamlit + plotly (once)
 streamlit run dashboard/app.py    # or: .\run.cmd dashboard
 ```
 
-Opens `http://localhost:8501` with 4 pages: **Home** (inflation index & factor analysis - see below),
+Opens `http://localhost:8501` with 5 pages: **Home** (inflation index & factor analysis - see below),
 **CPI Trends** (compare price groups over time), **Crop Production** (top districts by
-area/production/yield), **Data Explorer** (filter + download `master_long`). It reads only the
-DuckDB snapshot - never SQL Server - so it works identically once deployed.
+area/production/yield), **Data Explorer** (filter + download `master_long`), and **Inflation
+Heatmap** (monthly change by CPI group). It reads only the DuckDB snapshot - never SQL Server - so
+it works identically once deployed.
 
-**Sidebar:** collapsed by default on every page (`initial_sidebar_state="collapsed"`) - click the
-small `>>` control at the top-left to open it and reach the other 3 pages; the dashboard content
-uses the freed-up width by default.
+**Navigation:** a horizontal bar across the top of the page (`st.navigation(..., position="top")`
+in `dashboard/app.py`, the actual entry point/router - see its module docstring), not a sidebar -
+there isn't one. Each page keeps its full width; nothing is reserved for a sidebar column. Below
+roughly 768px wide, Streamlit's own `position="top"` falls back to a small `»` toggle that opens
+the same links in a slide-out panel (a native Streamlit behavior, not something built for this
+project specifically) - a deliberate choice over a hand-built alternative, since replacing
+Streamlit's own nav rendering would mean re-implementing its active-state styling, hover behavior,
+and responsiveness by hand instead of inheriting it.
+
+Every individual page file (`dashboard/pages/*.py`) had its own `st.set_page_config()` call removed
+- that can only be called once per run, and the router now owns it (see `dashboard/app.py`). The
+former Home page's content moved unchanged into `dashboard/pages/0_Home.py` (still the default
+page, i.e. what a fresh visit lands on) - `dashboard/app.py` itself is a thin router now, not the
+Home page. One implementation detail worth knowing if you touch the main chart's custom
+`hc_main_chart` component: `components.declare_component()` needs to resolve its own calling
+module via `inspect.getmodule()`, which fails for a page `exec`'d by `st.navigation()`'s
+`pg.run()` (confirmed live) - so that component is declared in `pricelab.dashboard.hc_main_chart`,
+a normally-`import`ed package module, instead of inline in the page.
 
 ### Home page: Inflation Index & Change
 
@@ -226,7 +242,7 @@ license is required for commercial deployment - see <https://www.highcharts.com/
 2. Go to <https://share.streamlit.io>, sign in with GitHub, **New app**.
 3. Pick this repo/branch, set **Main file path** to `dashboard/app.py`, Deploy.
 4. Streamlit Cloud installs `requirements.txt` (which installs `pricelab` + the dashboard extra)
-   and serves the same 4 pages at a public `*.streamlit.app` URL.
+   and serves the same 5 pages at a public `*.streamlit.app` URL.
 5. To publish new data: run ingestion locally (refreshes `pricelab.duckdb`), commit, push - the
    deployed app updates automatically (or click "Rerun" on share.streamlit.io).
 

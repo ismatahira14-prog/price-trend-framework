@@ -1,4 +1,8 @@
-"""Data Explorer page - filter and download the raw tidy table."""
+"""Data Explorer page - filter and download the raw tidy table.
+
+Registered in dashboard/app.py's st.navigation() (the top nav bar) - that's
+also where st.set_page_config() now lives (once per app, not once per page).
+"""
 
 from __future__ import annotations
 
@@ -11,9 +15,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from pricelab.dashboard.data import load_master_long  # noqa: E402
 
-st.set_page_config(
-    page_title="Data Explorer", page_icon="🔎", layout="wide", initial_sidebar_state="collapsed"
-)
 st.title("Data Explorer")
 st.caption("Browse master_long directly - the same table as data/processed/master_long.csv.")
 

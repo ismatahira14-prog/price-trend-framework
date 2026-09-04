@@ -1,4 +1,8 @@
-"""Inflation heat map page - monthly change by CPI group."""
+"""Inflation heat map page - monthly change by CPI group.
+
+Registered in dashboard/app.py's st.navigation() (the top nav bar) - that's
+also where st.set_page_config() now lives (once per app, not once per page).
+"""
 
 from __future__ import annotations
 
@@ -13,12 +17,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 from pricelab.dashboard.data import cpi_series, load_master_long  # noqa: E402
 from pricelab.dashboard.theme import CPI_GROUP_ORDER  # noqa: E402
 
-st.set_page_config(
-    page_title="Inflation Heat Map",
-    page_icon="🗓",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
 st.title("Inflation heat map")
 st.caption("Rows are months and columns are CPI groups. Values are percentage changes.")
 
