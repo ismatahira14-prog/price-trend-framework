@@ -162,12 +162,9 @@ anywhere on this page):
    (High/Medium/Low = 1st-4th / 5th-8th / 9th-12th largest mover that month) - a computed ranking,
    **not** an official basket-weight contribution percentage, which this project's data does not
    include.
-4. **Month-to-Month vs Year-to-Year comparison** - two side-by-side **Highcharts Stock** charts
-   (range-selector buttons, zoom/pan, navigator scrollbar), positive/negative segments colored
-   distinctly. Read-only/supplementary - independent of everything above.
-5. **Two full archive tables** (month-by-month, year-by-year), real per-group MoM %/YoY % data for
+4. **Two full archive tables** (month-by-month, year-by-year), real per-group MoM %/YoY % data for
    all 12 CPI groups.
-6. **Global Events table** - ~9 well-documented global events (pandemics, wars, shipping
+5. **Global Events table** - ~9 well-documented global events (pandemics, wars, shipping
    disruptions, monetary-policy shifts, commodity shocks) with start/end dates (`"Ongoing"` where
    there's no real end date), category, transmission channels, and whether each is shown on the
    main chart. Domestic (Pakistan-specific) events - the 2022 floods, the 2023 currency devaluation

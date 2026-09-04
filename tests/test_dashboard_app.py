@@ -36,8 +36,8 @@ def _main_chart_config(at) -> dict:
     (it falls back to a generic `UnknownElement`, found via `at.get(
     "component_instance")`) - but the args passed to it are plain JSON
     (`proto.json_args`, `{"config": {...}, "height": ..., "key": ...}`), far
-    simpler to read than the iframe-embedded-script approach the M/M and
-    Y/Y comparison charts still need.
+    simpler to read than the iframe-embedded-script approach the group-bars
+    chart still needs (see `_json_after`).
     """
     instances = at.get("component_instance")
     main = next(c for c in instances if c.proto.component_name == "app.hc_main_chart")
@@ -95,13 +95,13 @@ def test_home_page_loads_without_exceptions():
     # The Inflation Index & Change chart is a real custom component
     # (`hc_main_chart`, so it can send a click back into Python) - AppTest
     # has no dedicated wrapper for that, it shows up generically via
-    # `at.get("component_instance")`. Everything else Highcharts-based
-    # (the group-bars pair, sharing one iframe, plus the M/M and Y/Y
-    # comparison charts, one iframe each) doesn't need a return channel,
-    # so it's still plain st.components.v1.html -> `iframe` in AppTest.
+    # `at.get("component_instance")`. The group-bars pair (one iframe,
+    # doesn't need a return channel) is the only remaining
+    # st.components.v1.html -> `iframe` in AppTest; the separate "Month-to-
+    # Month vs Year-to-Year comparison" section (two more) was removed.
     assert len(at.get("plotly_chart")) == 0
     assert len(at.get("component_instance")) == 1
-    assert len(at.get("iframe")) == 3
+    assert len(at.get("iframe")) == 1
 
 
 def test_inflation_heatmap_page_loads_with_group_columns_and_period_rows():
@@ -145,9 +145,10 @@ def test_main_chart_full_width_with_pan_and_zoom_controls():
 
     # Regression check: the chart used to sit in st.columns([9, 3]) with an
     # empty reserved column beside it. Column count across the WHOLE page
-    # should now be exactly 8 (4 top KPIs + 2 band checkboxes + 2 M/M-YoY) -
-    # if the 9:3 split were still there, it'd be 2 higher.
-    assert len(at.columns) == 8
+    # should now be exactly 6 (4 top KPIs + 2 band checkboxes - the M/M-YoY
+    # comparison section's own 2 columns were removed along with it) - if
+    # the 9:3 split were still there, it'd be higher.
+    assert len(at.columns) == 6
 
     cfg = _main_chart_config(at)
 
@@ -257,27 +258,6 @@ def test_group_bars_share_one_category_order_and_a_synced_mode_toggle():
     assert "__leftChart.series[0].setData(pct ? __leftPct : __leftAbs, true" in srcdoc
     assert "__rightChart.series[0].setData(pct ? __rightPct : __rightAbs, true" in srcdoc
     assert "Percentage" in srcdoc and "Absolute Value" in srcdoc
-
-
-def test_highcharts_mom_yoy_comparison_charts_still_render():
-    """The M/M and Y/Y comparison charts are unchanged by this pass - still
-    Highcharts, embedded via st.components.v1.html."""
-    at = AppTest.from_file(str(APP_PATH), default_timeout=60).run()
-    assert not at.exception, [e.message for e in at.exception]
-    # Inclusion, not "not hc-main-chart" exclusion - the main chart is a
-    # custom component now (never an iframe), and the group-bars pair is a
-    # THIRD iframe on this page that an exclusion filter would incorrectly
-    # sweep in too.
-    iframes = [
-        f for f in at.get("iframe") if "hc-mom-chart" in f.proto.srcdoc or "hc-yoy-chart" in f.proto.srcdoc
-    ]
-    assert len(iframes) == 2
-    srcdocs = [f.proto.srcdoc for f in iframes]
-    assert any("hc-mom-chart" in s and "Month-over-month" in s for s in srcdocs)
-    assert any("hc-yoy-chart" in s and "Year-over-year" in s for s in srcdocs)
-    assert all("Highcharts.stockChart" in s for s in srcdocs)
-    assert all("code.highcharts.com" not in s for s in srcdocs)
-    assert all(len(s) > 300_000 for s in srcdocs)  # the ~370KB library is actually inlined
 
 
 def test_archive_tables_show_all_12_real_groups():

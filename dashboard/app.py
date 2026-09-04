@@ -25,9 +25,9 @@ iframe sandbox has no `allow-top-navigation`, confirmed live). The period
 picker (a plain selectbox) still works independently too. The 12-group
 breakdown is now a pair of Highcharts bar charts (MoM and YoY, side by
 side, sharing a Percentage/Absolute Value toggle - see
-`_highcharts_group_bars`) rather than one Plotly bar chart. The M/M vs
-Y/Y comparison charts further down (still plain `st.components.v1.html`,
-no click behavior needed there) are unchanged.
+`_highcharts_group_bars`) rather than one Plotly bar chart. The separate
+"Month-to-Month vs Year-to-Year comparison" section (two Highcharts Stock
+line charts with their own range selector/navigator) has been removed.
 
 The header banner embeds `dashboard/pbs_logo.jpg` (user-supplied).
 """
@@ -226,26 +226,6 @@ def _severity_plotbands(y_lo: float, y_hi: float) -> list[dict]:
     return bands
 
 
-def _highcharts_series(series: pd.Series, name: str) -> dict:
-    """One [timestamp_ms, value] Highcharts Stock series - NaNs dropped (Highcharts
-    plots a gap, which is correct; it doesn't need pandas' NaN representation).
-
-    color/negativeColor use the same increase/decrease pair as everywhere else
-    on this page (e.g. the 12-group breakdown bars) - each chart here shows a
-    single measure, so color is free to carry "rising vs falling" instead of
-    series identity (the chart's own title already says which measure it is).
-    """
-    s = series.dropna()
-    return {
-        "name": name,
-        "data": [[int(ts.timestamp() * 1000), round(float(v), 2)] for ts, v in s.items()],
-        "color": INCREASE_COLOR,
-        "negativeColor": DECREASE_COLOR,
-        "lineWidth": 2,
-        "threshold": 0,
-    }
-
-
 @st.cache_data
 def _highstock_js() -> str:
     """Highcharts Stock, bundled locally (dashboard/assets/highstock.js) rather
@@ -259,29 +239,6 @@ def _highstock_js() -> str:
     https://www.highcharts.com/license.
     """
     return (Path(__file__).parent / "assets" / "highstock.js").read_text(encoding="utf-8")
-
-
-def _highcharts_stock(chart_id: str, config: dict, *, height: int = 420) -> None:
-    """Embed one Highcharts Stock chart. Config is plain Python -> json.dumps
-    handles it; Highcharts Stock (not plain Highcharts) is used specifically
-    for its built-in range selector + navigator, matching the "time
-    range/zoom" control this page's spec asks for.
-
-    This chart is read-only w.r.t. Streamlit - Highcharts has no first-party
-    Streamlit integration, unlike Plotly's `on_select`. "What caused the
-    inflation spike?" uses its own selectbox instead of a chart click.
-    """
-    spec_json = json.dumps(config)
-    components.html(
-        f"""
-        <div id="{chart_id}" style="width:100%;height:{height - 20}px;"></div>
-        <script>{_highstock_js()}</script>
-        <script>
-            Highcharts.stockChart('{chart_id}', {spec_json});
-        </script>
-        """,
-        height=height,
-    )
 
 
 def _group_bar_points(values: pd.Series) -> list[dict | None]:
@@ -491,8 +448,8 @@ def _write_hc_main_chart_component() -> str:
     / setFrameHeight), small enough to hand-write directly below rather than
     pull in a whole component-scaffolding toolchain for it.
 
-    This still has all the same pieces `_highcharts_stock`'s main-chart
-    predecessor had - the 1x/2x/5x/10x + Reset zoom buttons, and the plain-
+    This still has all the same pieces this chart's earlier plain
+    `components.html` embed had - the 1x/2x/5x/10x + Reset zoom buttons, and the plain-
     HTML event-name overlay (see `_event_plotbands`'s docstring for why
     that's not a Highcharts plotBand `label`) - just packaged as a real
     component's frontend instead of a `components.html` payload, and with
@@ -962,71 +919,6 @@ if not period_groups.empty:
     st.caption(f"{SOURCE_NOTE}. Relative Magnitude = rank among the 12 groups that month, not an official weight.")
 else:
     st.warning("No per-group data available for this period yet.")
-
-st.divider()
-
-# ------------------------------------------------- M/M & Y/Y comparison (Highcharts) -
-st.subheader("Month-to-Month vs Year-to-Year comparison")
-st.caption(
-    "Drag across either chart to zoom, use the range buttons or the navigator scrollbar "
-    "below the chart to move through time."
-)
-
-hc_mom, hc_yoy = st.columns(2)
-_hc_shared_xaxis = {
-    "type": "datetime",
-    "labels": {"style": AXIS_LABEL_STYLE},
-}
-_hc_shared_rangeselector = {
-    "selected": 4,
-    "buttons": [
-        {"type": "year", "count": 1, "text": "1y"},
-        {"type": "year", "count": 3, "text": "3y"},
-        {"type": "year", "count": 5, "text": "5y"},
-        {"type": "year", "count": 10, "text": "10y"},
-        {"type": "all", "text": "All"},
-    ],
-}
-
-with hc_mom:
-    st.markdown("**Month-to-Month (%)**")
-    _highcharts_stock(
-        "hc-mom-chart",
-        {
-            "chart": {"backgroundColor": "transparent", "style": {"fontFamily": "inherit"}},
-            "title": {"text": None},
-            "rangeSelector": _hc_shared_rangeselector,
-            "xAxis": _hc_shared_xaxis,
-            "yAxis": {
-                "title": {"text": "MoM change (%)", "style": AXIS_TITLE_STYLE},
-                "labels": {"style": AXIS_LABEL_STYLE},
-                "opposite": False,
-            },
-            "tooltip": {"valueDecimals": 2, "valueSuffix": "%", "shared": True},
-            "series": [_highcharts_series(ct["mom_pct"], "Month-over-month (%)")],
-            "credits": {"enabled": False},
-        },
-    )
-
-with hc_yoy:
-    st.markdown("**Year-to-Year (%)**")
-    _highcharts_stock(
-        "hc-yoy-chart",
-        {
-            "chart": {"backgroundColor": "transparent", "style": {"fontFamily": "inherit"}},
-            "title": {"text": None},
-            "rangeSelector": _hc_shared_rangeselector,
-            "xAxis": _hc_shared_xaxis,
-            "yAxis": {
-                "title": {"text": "YoY change (%)", "style": AXIS_TITLE_STYLE},
-                "labels": {"style": AXIS_LABEL_STYLE},
-                "opposite": False,
-            },
-            "tooltip": {"valueDecimals": 2, "valueSuffix": "%", "shared": True},
-            "series": [_highcharts_series(ct["yoy_pct"], "Year-over-year (%)")],
-            "credits": {"enabled": False},
-        },
-    )
 
 st.divider()
 
