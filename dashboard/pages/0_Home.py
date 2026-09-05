@@ -75,6 +75,7 @@ from pricelab.dashboard.factors import (  # noqa: E402
 )
 from pricelab.dashboard.hc_main_chart import hc_main_chart  # noqa: E402
 from pricelab.dashboard.theme import (  # noqa: E402
+    CPI_GROUP_ICONS,
     CPI_GROUP_ORDER,
     DECREASE_COLOR,
     HIGHLIGHT_HUE,
@@ -728,7 +729,12 @@ if not period_groups.empty:
     _highcharts_group_bars(
         "hc-group-mom",
         "hc-group-yoy",
-        categories=sorted_for_chart["group"].tolist(),
+        # Same icon per group as the Inflation Heatmap page's column headers
+        # (pricelab.dashboard.theme.CPI_GROUP_ICONS, shared rather than a
+        # separate guess) - on the category axis, so it shows on both bar
+        # charts' labels and their tooltips (Highcharts pairs each point
+        # with its category by position automatically).
+        categories=[f"{CPI_GROUP_ICONS.get(g, '')} {g}".strip() for g in sorted_for_chart["group"]],
         left_pct=sorted_for_chart["mom_pct"],
         left_abs=sorted_for_chart["mom_abs"],
         left_title="Month-to-Month Inflation by Group",

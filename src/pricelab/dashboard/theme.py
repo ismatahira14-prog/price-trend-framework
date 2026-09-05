@@ -39,6 +39,26 @@ CPI_GROUP_ORDER: list[str] = [
     "Miscellaneous Goods & Services",
 ]
 
+# One representative emoji per CPI group - shared so every page that labels
+# a group by name (the Inflation Heatmap's column headers, the Home page's
+# group bar charts) uses the exact same icon for it, not a page-specific
+# guess. No entry for "General" (the all-groups aggregate, not itself one of
+# the 12 COICOP groups - see CPI_GROUP_ORDER's own comment).
+CPI_GROUP_ICONS: dict[str, str] = {
+    "Food & Non-Alcoholic Beverages": "🍎",
+    "Transport": "🚗",
+    "Housing, Water, Electricity, Gas & Fuels": "🏠",
+    "Health": "🏥",
+    "Education": "🎓",
+    "Clothing & Footwear": "👕",
+    "Communication": "📱",
+    "Restaurants & Hotels": "🍽️",
+    "Recreation & Culture": "🎭",
+    "Furnishing & Household Equipment": "🛋️",
+    "Alcoholic Beverages & Tobacco": "🍷",
+    "Miscellaneous Goods & Services": "🛍️",
+}
+
 # Sensible default selection for the CPI Trends page: General + the groups
 # most tied to the framework's WHY drivers (food, transport, housing/energy).
 CPI_DEFAULT_GROUPS: list[str] = [

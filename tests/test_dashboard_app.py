@@ -215,7 +215,7 @@ def test_group_bars_share_one_category_order_and_a_synced_mode_toggle():
     the exact same groups in the exact same order (not independently
     re-sorted), matching colors/styling, and one Percentage/Absolute Value
     toggle driving both charts together."""
-    from pricelab.dashboard.theme import CPI_GROUP_ORDER, DECREASE_COLOR, INCREASE_COLOR
+    from pricelab.dashboard.theme import CPI_GROUP_ICONS, CPI_GROUP_ORDER, DECREASE_COLOR, INCREASE_COLOR
 
     at = AppTest.from_file(str(APP_PATH), default_timeout=60).run()
     assert not at.exception, [e.message for e in at.exception]
@@ -232,9 +232,12 @@ def test_group_bars_share_one_category_order_and_a_synced_mode_toggle():
     right_categories = right_config["xAxis"]["categories"]
 
     # Same groups, same order, in both charts - and it's the real 12
-    # COICOP groups, not a separately hand-built list.
+    # COICOP groups (each prefixed with its shared CPI_GROUP_ICONS emoji,
+    # same as the Inflation Heatmap page's column headers - not a
+    # separately hand-built list or a different icon set).
     assert left_categories == right_categories
-    assert set(left_categories) == set(CPI_GROUP_ORDER[1:])
+    expected = {f"{CPI_GROUP_ICONS.get(g, '')} {g}".strip() for g in CPI_GROUP_ORDER[1:]}
+    assert set(left_categories) == expected
     assert len(left_categories) == 12
 
     # The Percentage dataset's own point order must match that category

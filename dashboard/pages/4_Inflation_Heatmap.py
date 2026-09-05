@@ -15,25 +15,14 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from pricelab.dashboard.data import cpi_series, load_master_long  # noqa: E402
-from pricelab.dashboard.theme import CPI_GROUP_ORDER  # noqa: E402
+from pricelab.dashboard.theme import CPI_GROUP_ICONS, CPI_GROUP_ORDER  # noqa: E402
 
 st.title("Inflation heat map")
 st.caption("Rows are months and columns are CPI groups. Values are percentage changes.")
 
-GROUP_ICONS = {
-    "Food & Non-Alcoholic Beverages": "🍎",
-    "Transport": "🚗",
-    "Housing, Water, Electricity, Gas & Fuels": "🏠",
-    "Health": "🏥",
-    "Education": "🎓",
-    "Clothing & Footwear": "👕",
-    "Communication": "📱",
-    "Restaurants & Hotels": "🍽️",
-    "Recreation & Culture": "🎭",
-    "Furnishing & Household Equipment": "🛋️",
-    "Alcoholic Beverages & Tobacco": "🍷",
-    "Miscellaneous Goods & Services": "🛍️",
-}
+# Shared with the Home page's group bar charts (see pricelab.dashboard.theme)
+# so the same icon always means the same group everywhere in the dashboard.
+GROUP_ICONS = CPI_GROUP_ICONS
 GROUP_LABELS = {
     "Food & Non-Alcoholic Beverages": "Food",
     "Transport": "Transport",
