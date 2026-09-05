@@ -752,8 +752,6 @@ if show_event_bands:
     )
     st.markdown(f'<div style="margin:2px 0 10px;">{_legend_chips}</div>', unsafe_allow_html=True)
 
-st.divider()
-
 # ------------------------------------------------------ what caused the spike -
 st.markdown(f'<div id="{ANCHOR_ID}"></div>', unsafe_allow_html=True)
 if st.session_state.get("_trigger_scroll"):
