@@ -513,11 +513,17 @@ group_long = _group_long(df)
 
 # ------------------------------------------------------------------- KPIs --
 latest = ct.iloc[-1]
-peak_yoy_date = ct["yoy_pct"].idxmax() if ct["yoy_pct"].notna().any() else None
-peak_yoy_val = ct["yoy_pct"].max() if peak_yoy_date is not None else None
+# Full historical YoY series (ct isn't filtered to any visible date range -
+# it's the whole master_long-derived series), not just the latest value -
+# min/max + the exact period each occurred in, genuinely computed, never
+# hardcoded.
+high_yoy_date = ct["yoy_pct"].idxmax() if ct["yoy_pct"].notna().any() else None
+high_yoy_val = ct["yoy_pct"].max() if high_yoy_date is not None else None
+low_yoy_date = ct["yoy_pct"].idxmin() if ct["yoy_pct"].notna().any() else None
+low_yoy_val = ct["yoy_pct"].min() if low_yoy_date is not None else None
 
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Latest General CPI", f"{latest['cpi']:.2f}", help="Base: 2015-16 = 100")
+c1, c2, c3, c4, c5 = st.columns(5)
+c1.metric("Inflation (CPI)", f"{latest['cpi']:.2f}", help="Base: 2015-16 = 100")
 c2.metric(
     "Month-over-month", f"{latest['mom_pct']:+.2f}%" if pd.notna(latest["mom_pct"]) else "n/a"
 )
@@ -525,9 +531,20 @@ c3.metric(
     "Year-over-year", f"{latest['yoy_pct']:+.2f}%" if pd.notna(latest["yoy_pct"]) else "n/a"
 )
 c4.metric(
-    "Highest recorded inflation (YoY)",
-    f"{peak_yoy_val:+.2f}%" if peak_yoy_val is not None else "n/a",
-    help=f"Recorded {peak_yoy_date:%b %Y}" if peak_yoy_date is not None else None,
+    "Historic Low Inflation",
+    f"{low_yoy_val:+.2f}%" if low_yoy_val is not None else "n/a",
+    delta=f"{low_yoy_date:%B %Y}" if low_yoy_date is not None else None,
+    delta_color="off",
+    delta_arrow="off",  # a month/year label, not a numeric up/down change
+    help="Minimum year-over-year change across the full historical series",
+)
+c5.metric(
+    "Historic High Inflation",
+    f"{high_yoy_val:+.2f}%" if high_yoy_val is not None else "n/a",
+    delta=f"{high_yoy_date:%B %Y}" if high_yoy_date is not None else None,
+    delta_color="off",
+    delta_arrow="off",  # a month/year label, not a numeric up/down change
+    help="Maximum year-over-year change across the full historical series",
 )
 st.caption(SOURCE_NOTE + f" · {ct.index.min():%b %Y} – {ct.index.max():%b %Y}")
 
