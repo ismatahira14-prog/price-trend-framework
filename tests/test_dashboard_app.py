@@ -91,9 +91,9 @@ def test_home_page_loads_without_exceptions():
     assert not at.exception, [e.message for e in at.exception]
     # Top-of-page KPIs only - the "What caused the inflation spike?" heading
     # and its own 4-metric KPI row/active-event caption were removed; the
-    # period picker and 12-group breakdown (bar chart + table) stayed. 5, not
-    # 4: Inflation (CPI), MoM, YoY, Historic Low, Historic High.
-    assert len(at.metric) == 5
+    # period picker and 12-group breakdown (bar chart + table) stayed. 6:
+    # Inflation (CPI), MoM, YoY, Historic Low, Historic High, Snapshot.
+    assert len(at.metric) == 6
     # Spike-section breakdown + month-by-month + year-by-year + Global Events.
     assert len(at.dataframe) == 4
     # No Plotly left on this page at all - the 12-group breakdown is now a
@@ -113,7 +113,9 @@ def test_home_page_loads_without_exceptions():
 def test_historic_low_and_high_kpis_use_the_full_series_not_just_latest():
     """Historic Low/High Inflation must be the min/max of the WHOLE
     historical YoY series (and the exact month/year each occurred in) -
-    genuinely computed, not the latest value or a hardcoded number."""
+    genuinely computed, not the latest value or a hardcoded number. The
+    Inflation Snapshot card must be the trailing-12-month YoY average, not
+    another copy of the latest single month's value."""
     import sys
     from pathlib import Path as _Path
 
@@ -126,6 +128,9 @@ def test_historic_low_and_high_kpis_use_the_full_series_not_just_latest():
     expected_low_val = ct["yoy_pct"].min()
     expected_high_date = ct["yoy_pct"].idxmax()
     expected_high_val = ct["yoy_pct"].max()
+    last_12 = ct.tail(12)
+    expected_snapshot_avg = last_12["yoy_pct"].mean()
+    expected_snapshot_range = f"{last_12.index.min():%b %Y} – {last_12.index.max():%b %Y}"
 
     at = AppTest.from_file(str(APP_PATH), default_timeout=60).run()
     assert not at.exception, [e.message for e in at.exception]
@@ -134,12 +139,30 @@ def test_historic_low_and_high_kpis_use_the_full_series_not_just_latest():
     assert metrics["Inflation (CPI)"].value == f"{ct['cpi'].iloc[-1]:.2f}"
     low = metrics["Historic Low Inflation"]
     high = metrics["Historic High Inflation"]
+    snapshot = metrics["Inflation Snapshot"]
     assert low.value == f"{expected_low_val:+.2f}%"
     assert low.delta == f"{expected_low_date:%B %Y}"
     assert high.value == f"{expected_high_val:+.2f}%"
     assert high.delta == f"{expected_high_date:%B %Y}"
     # The two are genuinely different extremes, not the same value twice.
     assert low.value != high.value
+    assert snapshot.value == f"{expected_snapshot_avg:+.2f}%"
+    assert snapshot.delta == expected_snapshot_range
+    # A trailing-12-month average, not just a re-display of the single
+    # latest month's YoY (they'd only coincide by pure chance).
+    assert snapshot.value != metrics["Year-over-year"].value
+
+    # Every KPI card has its own icon - a real single-emoji value, not left
+    # unset (icon defaults to "" when not passed).
+    for label in (
+        "Inflation (CPI)",
+        "Month-over-month",
+        "Year-over-year",
+        "Historic Low Inflation",
+        "Historic High Inflation",
+        "Inflation Snapshot",
+    ):
+        assert metrics[label].icon, f"{label} has no icon set"
 
 
 def test_inflation_heatmap_page_loads_with_group_columns_and_period_rows():
@@ -183,10 +206,10 @@ def test_main_chart_full_width_with_pan_and_zoom_controls():
 
     # Regression check: the chart used to sit in st.columns([9, 3]) with an
     # empty reserved column beside it. Column count across the WHOLE page
-    # should now be exactly 7 (5 top KPIs + 2 band checkboxes - the M/M-YoY
+    # should now be exactly 8 (6 top KPIs + 2 band checkboxes - the M/M-YoY
     # comparison section's own 2 columns were removed along with it) - if
     # the 9:3 split were still there, it'd be higher.
-    assert len(at.columns) == 7
+    assert len(at.columns) == 8
 
     cfg = _main_chart_config(at)
 

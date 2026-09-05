@@ -522,13 +522,24 @@ high_yoy_val = ct["yoy_pct"].max() if high_yoy_date is not None else None
 low_yoy_date = ct["yoy_pct"].idxmin() if ct["yoy_pct"].notna().any() else None
 low_yoy_val = ct["yoy_pct"].min() if low_yoy_date is not None else None
 
-c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("Inflation (CPI)", f"{latest['cpi']:.2f}", help="Base: 2015-16 = 100")
+# Trailing 12 calendar months (whatever the data's own last row is - not
+# tied to "today"), average YoY change - a smoothed read on "roughly what
+# has inflation been running at lately", distinct from the single latest
+# month's YoY figure already shown above.
+last_12 = ct.tail(12)
+last_12_avg = last_12["yoy_pct"].mean() if last_12["yoy_pct"].notna().any() else None
+
+c1, c2, c3, c4, c5, c6 = st.columns(6)
+c1.metric("Inflation (CPI)", f"{latest['cpi']:.2f}", help="Base: 2015-16 = 100", icon="📊")
 c2.metric(
-    "Month-over-month", f"{latest['mom_pct']:+.2f}%" if pd.notna(latest["mom_pct"]) else "n/a"
+    "Month-over-month",
+    f"{latest['mom_pct']:+.2f}%" if pd.notna(latest["mom_pct"]) else "n/a",
+    icon="🔄",
 )
 c3.metric(
-    "Year-over-year", f"{latest['yoy_pct']:+.2f}%" if pd.notna(latest["yoy_pct"]) else "n/a"
+    "Year-over-year",
+    f"{latest['yoy_pct']:+.2f}%" if pd.notna(latest["yoy_pct"]) else "n/a",
+    icon="📅",
 )
 c4.metric(
     "Historic Low Inflation",
@@ -537,6 +548,7 @@ c4.metric(
     delta_color="off",
     delta_arrow="off",  # a month/year label, not a numeric up/down change
     help="Minimum year-over-year change across the full historical series",
+    icon="📉",
 )
 c5.metric(
     "Historic High Inflation",
@@ -545,6 +557,16 @@ c5.metric(
     delta_color="off",
     delta_arrow="off",  # a month/year label, not a numeric up/down change
     help="Maximum year-over-year change across the full historical series",
+    icon="📈",
+)
+c6.metric(
+    "Inflation Snapshot",
+    f"{last_12_avg:+.2f}%" if last_12_avg is not None else "n/a",
+    delta=f"{last_12.index.min():%b %Y} – {last_12.index.max():%b %Y}" if last_12_avg is not None else None,
+    delta_color="off",
+    delta_arrow="off",  # a date range, not a numeric up/down change
+    help="Average year-over-year change over the trailing 12 months",
+    icon="📸",
 )
 st.caption(SOURCE_NOTE + f" · {ct.index.min():%b %Y} – {ct.index.max():%b %Y}")
 
