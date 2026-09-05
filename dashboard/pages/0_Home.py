@@ -82,6 +82,7 @@ from pricelab.dashboard.theme import (  # noqa: E402
     INCREASE_COLOR,
     INFLATION_BAND_FILLS,
     MA_QUARTER_COLOR,
+    OKABE_ITO,
     PBS_GREEN,
     PBS_GREEN_DARK,
     SEQUENTIAL_HUE,
@@ -467,8 +468,15 @@ _logo_html = (
     else '<div class="badge">PBS</div>'
 )
 
-st.markdown(
-    f"""
+_KPI_ROW_SCOPE = 'div[data-testid="stElementContainer"]:has(.kpi-row) + div[data-testid="stLayoutWrapper"]'
+
+_kpi_accent_css = "\n".join(
+    f'{_KPI_ROW_SCOPE} div[data-testid="stColumn"]:nth-of-type({i + 1}) '
+    f'div[data-testid="stMetric"] {{ border-top: 4px solid {hue}; }}'
+    for i, hue in enumerate(OKABE_ITO[:6])
+)
+
+_pbs_header_html = f"""
     <style>
     .pbs-header {{
         background: linear-gradient(90deg, {PBS_GREEN_DARK}, {PBS_GREEN});
@@ -486,6 +494,30 @@ st.markdown(
     }}
     .pbs-header h1 {{ font-size: 1.35rem; margin: 0; color: white; }}
     .pbs-header p {{ margin: 2px 0 0; font-size: 0.82rem; opacity: 0.92; }}
+    /* KPI cards: a plain st.metric row reads flat - give each one a card
+    treatment (tinted background, rounded corners, shadow, hover-lift) and
+    a distinct top-accent color per card, drawn from the same Okabe-Ito
+    colorblind-safe palette already used for every chart series on this
+    page, rather than an arbitrary new set of colors. Scoped to the row
+    right after the ".kpi-row" marker div (see the call site) via :has() on
+    its stElementContainer wrapper plus an adjacent-sibling combinator to
+    the next stLayoutWrapper, since Streamlit gives every st.metric on the
+    page the same [data-testid="stMetric"] with no way to target "just this
+    row" otherwise - a blind page-wide selector would also (mis)style any
+    future st.metric added elsewhere. */
+    {_KPI_ROW_SCOPE} div[data-testid="stMetric"] {{
+        background: linear-gradient(165deg, #ffffff, rgba(11,110,79,0.05));
+        border: 1px solid rgba(0,0,0,0.06);
+        border-radius: 12px;
+        padding: 14px 16px 12px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.07);
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }}
+    {_KPI_ROW_SCOPE} div[data-testid="stMetric"]:hover {{
+        transform: translateY(-3px);
+        box-shadow: 0 8px 16px rgba(0,0,0,0.12);
+    }}
+    {_kpi_accent_css}
     </style>
     <div class="pbs-header">
         {_logo_html}
@@ -494,7 +526,10 @@ st.markdown(
             <p>Pakistan Consumer Price Index · Statistical Dashboard</p>
         </div>
     </div>
-    """,
+    """
+
+st.markdown(
+    "\n".join(line.lstrip() for line in _pbs_header_html.splitlines()),
     unsafe_allow_html=True,
 )
 
@@ -529,6 +564,7 @@ low_yoy_val = ct["yoy_pct"].min() if low_yoy_date is not None else None
 last_12 = ct.tail(12)
 last_12_avg = last_12["yoy_pct"].mean() if last_12["yoy_pct"].notna().any() else None
 
+st.markdown('<div class="kpi-row"></div>', unsafe_allow_html=True)
 c1, c2, c3, c4, c5, c6 = st.columns(6)
 c1.metric("Inflation (CPI)", f"{latest['cpi']:.2f}", help="Base: 2015-16 = 100", icon="📊")
 c2.metric(
@@ -569,8 +605,6 @@ c6.metric(
     icon="📸",
 )
 st.caption(SOURCE_NOTE + f" · {ct.index.min():%b %Y} – {ct.index.max():%b %Y}")
-
-st.divider()
 
 # ---------------------------------------------------------- main analysis --
 # The Inflation Index & Change chart - full width (no reserved side column),
