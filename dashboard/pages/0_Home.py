@@ -637,6 +637,7 @@ _main_chart_clicked = hc_main_chart(
             # 150px that left a visibly large gap above the chart (reported
             # live). Flat 20px with bands off.
             "marginTop": 110 if show_event_bands else 20,
+            "spacingBottom": 6,
             # Plain mouse-drag PANS (spec: "click and drag ... to move
             # through the time series") rather than the Highcharts Stock
             # default of drag-to-zoom-a-rectangle - the two are alternate
@@ -650,8 +651,31 @@ _main_chart_clicked = hc_main_chart(
         },
         "title": {"text": None},
         "rangeSelector": {"enabled": False},  # replaced by the 1x/2x/5x/10x buttons above the chart
-        "navigator": {"enabled": True},
-        "scrollbar": {"enabled": True},
+        # Themed to match the rest of the dashboard (PBS green) instead of
+        # Highcharts's default flat gray, which read as a dead/disabled
+        # control next to the colorful series above it (reported live).
+        "navigator": {
+            "enabled": True,
+            "maskFill": "rgba(11,110,79,0.12)",
+            "outlineColor": PBS_GREEN,
+            "outlineWidth": 1,
+            "series": {"color": SEQUENTIAL_HUE, "fillOpacity": 0.25, "lineWidth": 1},
+            "xAxis": {"labels": {"style": AXIS_LABEL_STYLE}},
+            "handles": {"backgroundColor": PBS_GREEN, "borderColor": PBS_GREEN_DARK},
+        },
+        "scrollbar": {
+            "enabled": True,
+            "height": 12,
+            "barBackgroundColor": PBS_GREEN,
+            "barBorderRadius": 6,
+            "barBorderWidth": 0,
+            "buttonBackgroundColor": PBS_GREEN_DARK,
+            "buttonBorderWidth": 0,
+            "buttonArrowColor": "#ffffff",
+            "trackBackgroundColor": "rgba(11,110,79,0.08)",
+            "trackBorderWidth": 0,
+            "rifleColor": "#ffffff",
+        },
         "xAxis": {
             "type": "datetime",
             "labels": {"style": AXIS_LABEL_STYLE},
@@ -688,7 +712,20 @@ _main_chart_clicked = hc_main_chart(
             },
         ],
         "tooltip": {"shared": True, "xDateFormat": "%b %Y"},
-        "legend": {"enabled": True},
+        # Explicit dark, bold itemStyle - the default legend text otherwise
+        # rendered noticeably lighter/thinner than the rest of the page's
+        # type, reading as blurry/washed-out next to the bold KPI cards
+        # above it (reported live).
+        "legend": {
+            "enabled": True,
+            "itemStyle": {"color": "#1F2A24", "fontSize": "12.5px", "fontWeight": "600"},
+            "itemHoverStyle": {"color": PBS_GREEN},
+            "symbolWidth": 20,
+            "symbolHeight": 3,
+            "itemDistance": 22,
+            "margin": 10,
+            "padding": 0,
+        },
         "credits": {"enabled": False},
         "series": [
             {
