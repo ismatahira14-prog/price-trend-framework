@@ -284,7 +284,8 @@ def _highcharts_group_bars(
     right_pct: pd.Series,
     right_abs: pd.Series,
     right_title: str,
-    height: int = 360,
+    period_label: str,
+    height: int = 400,
 ) -> None:
     """Two side-by-side Highcharts horizontal bar charts (MoM and YoY
     inflation by group), sharing one Percentage/Absolute Value toggle.
@@ -306,13 +307,23 @@ def _highcharts_group_bars(
     `categories` is a single shared list, in a single order, used verbatim
     for both charts - see the call site for why (same source order, not
     independently re-sorted).
+
+    `left_title`/`right_title` and `period_label` render as each chart's own
+    native Highcharts `title`/`subtitle`, not a plain HTML heading sitting
+    next to the chart - deliberately, so both travel WITH the chart if a
+    viewer downloads/exports it on its own (e.g. right-click -> save image,
+    or a future Highcharts "exporting" button): text outside the chart's own
+    SVG isn't part of that image, so a period shown only via the page's
+    shared "Selected period" selectbox above both charts would silently be
+    lost from either one's export.
     """
     left_pct_pts = _group_bar_points(left_pct)
     left_abs_pts = _group_bar_points(left_abs)
     right_pct_pts = _group_bar_points(right_pct)
     right_abs_pts = _group_bar_points(right_abs)
+    subtitle_text = f"Selected period: {period_label}"
 
-    def _bar_chart_options(chart_id: str, name: str, data: list, y_title: str) -> dict:
+    def _bar_chart_options(chart_id: str, name: str, data: list, y_title: str, title_text: str) -> dict:
         return {
             "chart": {
                 "type": "bar",
@@ -320,7 +331,8 @@ def _highcharts_group_bars(
                 "style": {"fontFamily": "inherit"},
                 "height": height,
             },
-            "title": {"text": None},
+            "title": {"text": title_text, "align": "left", "style": {"color": "#222222", "fontSize": "15px", "fontWeight": "700"}},
+            "subtitle": {"text": subtitle_text, "align": "left", "style": {"color": "#666666", "fontSize": "11px"}},
             "xAxis": {
                 "categories": categories,
                 "labels": {"style": AXIS_LABEL_STYLE},
@@ -351,8 +363,8 @@ def _highcharts_group_bars(
             "series": [{"name": name, "data": data}],
         }
 
-    left_config = _bar_chart_options(left_id, "MoM", left_pct_pts, "Month-to-month change (%)")
-    right_config = _bar_chart_options(right_id, "YoY", right_pct_pts, "Year-to-year change (%)")
+    left_config = _bar_chart_options(left_id, "MoM", left_pct_pts, "Month-to-month change (%)", left_title)
+    right_config = _bar_chart_options(right_id, "YoY", right_pct_pts, "Year-to-year change (%)", right_title)
 
     components.html(
         f"""
@@ -362,11 +374,9 @@ def _highcharts_group_bars(
         </div>
         <div style="display:flex; flex-wrap:wrap; gap:20px;">
             <div style="flex:1 1 380px; min-width:280px;">
-                <div style="font-weight:600; color:#222222; margin-bottom:2px;">{left_title}</div>
                 <div id="{left_id}" style="width:100%;"></div>
             </div>
             <div style="flex:1 1 380px; min-width:280px;">
-                <div style="font-weight:600; color:#222222; margin-bottom:2px;">{right_title}</div>
                 <div id="{right_id}" style="width:100%;"></div>
             </div>
         </div>
@@ -721,10 +731,14 @@ if not period_groups.empty:
         categories=sorted_for_chart["group"].tolist(),
         left_pct=sorted_for_chart["mom_pct"],
         left_abs=sorted_for_chart["mom_abs"],
-        left_title="Inflation Groups",
+        left_title="Month-to-Month Inflation by Group",
         right_pct=sorted_for_chart["yoy_pct"],
         right_abs=sorted_for_chart["yoy_abs"],
-        right_title="Year-to-Year Inflation",
+        right_title="Year-to-Year Inflation by Group",
+        # Native chart title/subtitle, not the page's shared selectbox -
+        # see _highcharts_group_bars's docstring for why: so the period
+        # travels with either chart if it's downloaded/exported on its own.
+        period_label=f"{selected:%B %Y}",
     )
 
     spike_display = period_groups[["group", "mom_pct", "yoy_pct", "relative_magnitude"]].rename(

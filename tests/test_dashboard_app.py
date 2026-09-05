@@ -251,10 +251,14 @@ def test_group_bars_share_one_category_order_and_a_synced_mode_toggle():
             continue
         assert point["color"] == (INCREASE_COLOR if point["y"] >= 0 else DECREASE_COLOR)
 
-    # Titles per the spec: the original chart keeps its identity, the new
-    # one is clearly labeled "Year-to-Year Inflation".
-    assert "Inflation Groups" in srcdoc
-    assert "Year-to-Year Inflation" in srcdoc
+    # Each chart's heading and the selected period are the chart's OWN
+    # native Highcharts title/subtitle (not a plain HTML heading/the page's
+    # shared selectbox) so both travel with the chart if it's downloaded or
+    # exported on its own.
+    assert left_config["title"]["text"] == "Month-to-Month Inflation by Group"
+    assert right_config["title"]["text"] == "Year-to-Year Inflation by Group"
+    assert left_config["subtitle"]["text"].startswith("Selected period: ")
+    assert left_config["subtitle"]["text"] == right_config["subtitle"]["text"]
 
     # One shared toggle drives both charts' setData together, with a
     # smooth Highcharts-native animated transition (not a Streamlit rerun
