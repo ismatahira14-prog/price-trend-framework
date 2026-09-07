@@ -74,6 +74,7 @@ from pricelab.dashboard.factors import (  # noqa: E402
     load_inflation_bands,
 )
 from pricelab.dashboard.hc_main_chart import hc_main_chart  # noqa: E402
+from pricelab.dashboard.heatmap import render_inflation_heatmap  # noqa: E402
 from pricelab.dashboard.theme import (  # noqa: E402
     CPI_GROUP_ICONS,
     CPI_GROUP_ORDER,
@@ -97,7 +98,8 @@ ANCHOR_ID = "spike-section-anchor"  # scroll target for the main chart's click-t
 # for a plain white card - against this page's chart cards it reads as
 # washed-out/blurry. Every axis on every Highcharts chart on this page uses
 # these two styles explicitly instead of the library default.
-AXIS_LABEL_STYLE = {"color": "#333333", "fontSize": "11px"}
+AXIS_LABEL_STYLE = {"color": "#333333", "fontSize": "12px"}
+AXIS_TITLE_STYLE = {"color": "#222222", "fontSize": "13px", "fontWeight": "600"}
 AXIS_TITLE_STYLE = {"color": "#222222", "fontSize": "12px", "fontWeight": "600"}
 
 
@@ -325,6 +327,22 @@ def _highcharts_group_bars(
     right_abs_pts = _group_bar_points(right_abs)
     subtitle_text = f"Selected period: {period_label}"
 
+    # The category axis carries the full group name plus its trailing emoji.
+    # Highcharts auto-sizes the left margin, but with several 40+ character
+    # names ("Housing, Water, Electricity, Gas & Fuels · 🏠") it clamps the
+    # labels and truncates them with an ellipsis - which also clips the
+    # emoji, since the emoji is last. Reserve a real left gutter sized from
+    # the longest label (≈6.4px per glyph at 12px, + room for the emoji and
+    # padding), capped so the plot area never collapses, and let labels wrap
+    # onto a second line inside that gutter instead of truncating. A matching
+    # responsive rule tightens the gutter and shrinks the label font on
+    # narrow viewports so nothing clips there either.
+    _longest = max((len(c) for c in categories), default=20)
+    _label_width = min(210, max(120, int(_longest * 6.4) + 26))
+    _margin_left = _label_width + 16
+    _label_width_narrow = max(96, int(_label_width * 0.62))
+    _margin_left_narrow = _label_width_narrow + 12
+
     def _bar_chart_options(chart_id: str, name: str, data: list, y_title: str, title_text: str) -> dict:
         return {
             "chart": {
@@ -332,12 +350,28 @@ def _highcharts_group_bars(
                 "backgroundColor": "transparent",
                 "style": {"fontFamily": "inherit"},
                 "height": height,
+                # left/right handled by explicit margins below; keep a little
+                # breathing room top and bottom
+                "spacing": [10, 4, 6, 0],
+                "marginLeft": _margin_left,
+                "marginRight": 64,
             },
-            "title": {"text": title_text, "align": "left", "style": {"color": "#222222", "fontSize": "15px", "fontWeight": "700"}},
-            "subtitle": {"text": subtitle_text, "align": "left", "style": {"color": "#666666", "fontSize": "11px"}},
+            "title": {"text": title_text, "align": "left", "style": {"color": "#222222", "fontSize": "16px", "fontWeight": "700"}},
+            "subtitle": {"text": subtitle_text, "align": "left", "style": {"color": "#666666", "fontSize": "12px"}},
             "xAxis": {
                 "categories": categories,
-                "labels": {"style": AXIS_LABEL_STYLE},
+                "labels": {
+                    "align": "right",
+                    "x": -10,
+                    "style": {
+                        **AXIS_LABEL_STYLE,
+                        # allow controlled wrapping instead of an ellipsis
+                        "width": f"{_label_width}px",
+                        "textOverflow": "none",
+                        "whiteSpace": "normal",
+                        "lineHeight": "13px",
+                    },
+                },
                 "lineColor": "rgba(128,128,128,0.3)",
             },
             "yAxis": {
@@ -350,13 +384,43 @@ def _highcharts_group_bars(
             "credits": {"enabled": False},
             "plotOptions": {
                 "bar": {
+                    "groupPadding": 0.08,
+                    "pointPadding": 0.12,
+                    "borderRadius": 2,
+                    "maxPointWidth": 22,
                     "dataLabels": {
                         "enabled": True,
                         "format": "{point.custom.label}",
-                        "style": {"fontSize": "11px", "fontWeight": "600", "color": "#333333", "textOutline": "none"},
+                        # never clip a value label that overhangs the plot edge
+                        "crop": False,
+                        "overflow": "allow",
+                        "style": {"fontSize": "12px", "fontWeight": "600", "color": "#333333", "textOutline": "none"},
                     },
                     "animation": {"duration": 500},
                 }
+            },
+            "responsive": {
+                "rules": [
+                    {
+                        "condition": {"maxWidth": 460},
+                        "chartOptions": {
+                            "chart": {"marginLeft": _margin_left_narrow, "marginRight": 44},
+                            "xAxis": {
+                                "labels": {
+                                    "x": -6,
+                                    "style": {
+                                        "color": AXIS_LABEL_STYLE["color"],
+                                        "fontSize": "10px",
+                                        "width": f"{_label_width_narrow}px",
+                                        "textOverflow": "none",
+                                        "whiteSpace": "normal",
+                                        "lineHeight": "12px",
+                                    },
+                                }
+                            },
+                        },
+                    }
+                ]
             },
             "tooltip": {
                 "headerFormat": "",
@@ -374,7 +438,7 @@ def _highcharts_group_bars(
             <button onclick="__setGroupBarMode('pct')" id="{left_id}-btn-pct" class="hc-zoom-btn hc-mode-btn hc-mode-btn-active">Percentage</button>
             <button onclick="__setGroupBarMode('abs')" id="{left_id}-btn-abs" class="hc-zoom-btn hc-mode-btn">Absolute Value</button>
         </div>
-        <div style="display:flex; flex-wrap:wrap; gap:20px;">
+        <div style="display:flex; flex-wrap:wrap; gap:10px;">
             <div style="flex:1 1 380px; min-width:280px;">
                 <div id="{left_id}" style="width:100%;"></div>
             </div>
@@ -509,9 +573,46 @@ _pbs_header_html = f"""
         background: linear-gradient(165deg, #ffffff, rgba(11,110,79,0.05));
         border: 1px solid rgba(0,0,0,0.06);
         border-radius: 12px;
-        padding: 14px 16px 12px;
+        height: 124px;
+        min-height: 124px;
+        box-sizing: border-box;
+        padding: 10px 14px 8px;
         box-shadow: 0 2px 6px rgba(0,0,0,0.07);
         transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }}
+    {_KPI_ROW_SCOPE} [data-testid="stMetricLabel"] {{
+        min-height: 2.4rem;
+        align-items: flex-start;
+    }}
+    {_KPI_ROW_SCOPE} [data-testid="stMetricLabel"] > div:first-child {{
+        align-items: flex-start;
+    }}
+    {_KPI_ROW_SCOPE} [data-testid="stMetricLabel"] [data-testid="stMetricIcon"] {{
+        margin-top: 8px;
+    }}
+    {_KPI_ROW_SCOPE} [data-testid="stMetricLabel"] [data-testid="stMarkdownContainer"] {{
+        min-width: 0;
+    }}
+    {_KPI_ROW_SCOPE} [data-testid="stMetricLabel"] p {{
+        font-size: 0.9rem;
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+        line-height: 1.18;
+    }}
+    {_KPI_ROW_SCOPE} [data-testid="stMetricLabel"] em {{
+        color: #7b818a;
+        font-size: 0.82em;
+        font-weight: 400;
+        font-style: normal;
+        white-space: nowrap;
+    }}
+    {_KPI_ROW_SCOPE} [data-testid="stMetricValue"] p {{
+        font-size: 2.15rem;
+        line-height: 1.05;
+    }}
+    {_KPI_ROW_SCOPE} [data-testid="stMetricDelta"] p {{
+        font-size: 0.78rem;
     }}
     {_KPI_ROW_SCOPE} div[data-testid="stMetric"]:hover {{
         transform: translateY(-3px);
@@ -546,8 +647,64 @@ if ct.empty:
 
 group_long = _group_long(df)
 
+# ------------------------------------------------ main-chart click -> period --
+# The main Inflation Index chart (rendered much further down) is a custom
+# component keyed "hc-main-chart"; clicking a point makes it call
+# setComponentValue with the x-axis DATE under the cursor (its own axis<->value
+# mapping, not a pixel guess - see hc_main_chart.py), snapped to the first of
+# that month. Streamlit stashes that in st.session_state["hc-main-chart"], and
+# it stays readable here on the NEXT run BEFORE the component itself is
+# re-instantiated - which is the whole point of reading it up here: the
+# "Selected period" picker and the period-specific KPI cards both render
+# below this line, so handling the click here lets them ALL pick up the new
+# month in a single run, with no st.rerun() (an st.rerun() fired from inside
+# the component's own callback run was silently dropped by Streamlit's
+# frontend - confirmed live - so the page never moved).
+_period_options = list(ct.index[::-1])
+st.session_state.setdefault("selected_period", ct.index[-1])
+st.session_state.setdefault("period_picker", st.session_state["selected_period"])
+
+_chart_click = st.session_state.get("hc-main-chart")
+if _chart_click and _chart_click != st.session_state.get("_last_main_chart_click"):
+    st.session_state["_last_main_chart_click"] = _chart_click
+    try:
+        _clicked_ts = pd.Timestamp(_chart_click)
+        # ct.index is a first-of-month monthly grid, so an in-range click is
+        # an exact hit; only fall back to `nearest` for a click that lands
+        # outside the data (clamps to the endpoint).
+        if _clicked_ts in ct.index:
+            _target = _clicked_ts
+        else:
+            _target = ct.index[ct.index.get_indexer([_clicked_ts], method="nearest")[0]]
+        st.session_state["selected_period"] = _target
+        # Legal here: the picker widget is created a few lines below, not yet.
+        st.session_state["period_picker"] = _target
+        # The scroll-into-view of the group bar section is done by the chart
+        # component itself right after it fires the click (see
+        # hc_main_chart.py's __scrollParentToGroupBars) - not from here.
+    except (ValueError, TypeError, IndexError):
+        pass
+
+# --------------------------------------------------------- period picker --
+# Sits ABOVE the KPI cards and every chart below so the whole page reacts to
+# it: the 3 period-specific KPIs (Inflation CPI / MoM / YoY) and the
+# per-group bar charts + spike table all key off `selected`. Historic
+# Low/High and the 12M average deliberately stay whole-series (they're
+# defined across the full history, not one month). The main time-series
+# chart also stays full-history - clicking a point on it just moves this
+# picker (see the click handler above).
+selected = st.selectbox(
+    "Selected period",
+    options=_period_options,
+    format_func=lambda d: d.strftime("%B %Y"),
+    key="period_picker",
+)
+st.session_state["selected_period"] = selected
+
 # ------------------------------------------------------------------- KPIs --
-latest = ct.iloc[-1]
+# c1-c3 follow the picker above; c4-c6 (Historic Low/High, 12M average) are
+# whole-series stats and use `ct` directly, unchanged.
+latest = ct.loc[selected]
 # Full historical YoY series (ct isn't filtered to any visible date range -
 # it's the whole master_long-derived series), not just the latest value -
 # min/max + the exact period each occurred in, genuinely computed, never
@@ -557,52 +714,52 @@ high_yoy_val = ct["yoy_pct"].max() if high_yoy_date is not None else None
 low_yoy_date = ct["yoy_pct"].idxmin() if ct["yoy_pct"].notna().any() else None
 low_yoy_val = ct["yoy_pct"].min() if low_yoy_date is not None else None
 
-# Trailing 12 calendar months (whatever the data's own last row is - not
-# tied to "today"), average YoY change - a smoothed read on "roughly what
-# has inflation been running at lately", distinct from the single latest
-# month's YoY figure already shown above.
-last_12 = ct.tail(12)
-last_12_avg = last_12["yoy_pct"].mean() if last_12["yoy_pct"].notna().any() else None
+# Trailing 12 months ending at the selected period (defaults to the data's
+# own last row), average MoM change - a smoothed read on recent monthly
+# price movement, distinct from the single-month MoM figure above.
+_sel_pos = ct.index.get_loc(selected)
+last_12 = ct.iloc[max(0, _sel_pos - 11):_sel_pos + 1]
+last_12_mom_avg = last_12["mom_pct"].mean() if last_12["mom_pct"].notna().any() else None
+
+
+def _kpi_label(title: str, period: str) -> str:
+    return f"**{title}** · _{period}_"
 
 st.markdown('<div class="kpi-row"></div>', unsafe_allow_html=True)
 c1, c2, c3, c4, c5, c6 = st.columns(6)
-c1.metric("Inflation (CPI)", f"{latest['cpi']:.2f}", help="Base: 2015-16 = 100", icon="📊")
+c1.metric(
+    _kpi_label("Inflation (CPI)", f"{latest.name:%b %Y}"),
+    f"{latest['cpi']:.2f}",
+    help="Base: 2015-16 = 100",
+    icon="📊",
+)
 c2.metric(
-    "Month-over-month",
+    _kpi_label("Month-over-month", f"{latest.name:%b %Y}"),
     f"{latest['mom_pct']:+.2f}%" if pd.notna(latest["mom_pct"]) else "n/a",
     icon="🔄",
 )
 c3.metric(
-    "Year-over-year",
+    _kpi_label("Year-over-year", f"{latest.name:%b %Y}"),
     f"{latest['yoy_pct']:+.2f}%" if pd.notna(latest["yoy_pct"]) else "n/a",
     icon="📅",
 )
 c4.metric(
-    "Historic Low Inflation",
+    _kpi_label("Historic Low Inflation", f"{low_yoy_date:%b %Y}" if low_yoy_date is not None else "n/a"),
     f"{low_yoy_val:+.2f}%" if low_yoy_val is not None else "n/a",
-    delta=f"{low_yoy_date:%B %Y}" if low_yoy_date is not None else None,
-    delta_color="off",
-    delta_arrow="off",  # a month/year label, not a numeric up/down change
     help="Minimum year-over-year change across the full historical series",
     icon="📉",
 )
 c5.metric(
-    "Historic High Inflation",
+    _kpi_label("Historic High Inflation", f"{high_yoy_date:%b %Y}" if high_yoy_date is not None else "n/a"),
     f"{high_yoy_val:+.2f}%" if high_yoy_val is not None else "n/a",
-    delta=f"{high_yoy_date:%B %Y}" if high_yoy_date is not None else None,
-    delta_color="off",
-    delta_arrow="off",  # a month/year label, not a numeric up/down change
     help="Maximum year-over-year change across the full historical series",
     icon="📈",
 )
 c6.metric(
-    "Inflation Snapshot",
-    f"{last_12_avg:+.2f}%" if last_12_avg is not None else "n/a",
-    delta=f"{last_12.index.min():%b %Y} – {last_12.index.max():%b %Y}" if last_12_avg is not None else None,
-    delta_color="off",
-    delta_arrow="off",  # a date range, not a numeric up/down change
-    help="Average year-over-year change over the trailing 12 months",
-    icon="📸",
+    _kpi_label("12M Average MoM", f"{last_12.index.min():%b %Y}–{last_12.index.max():%b %Y}"),
+    f"{last_12_mom_avg:+.2f}%" if last_12_mom_avg is not None else "n/a",
+    help="Average month-over-month inflation over the trailing 12 months",
+    icon="🧮",
 )
 st.caption(SOURCE_NOTE + f" · {ct.index.min():%b %Y} – {ct.index.max():%b %Y}")
 
@@ -623,7 +780,10 @@ y_hi = max(ct["mom_pct"].max(skipna=True), ct["yoy_pct"].max(skipna=True))
 pad = (y_hi - y_lo) * 0.08 or 1.0
 y_lo, y_hi = y_lo - pad, y_hi + pad
 
-_main_chart_clicked = hc_main_chart(
+# The return value (last clicked month, ISO) is handled at the TOP of this
+# script via st.session_state["hc-main-chart"] - see the "main-chart click
+# -> period" block up there for why it's read there and not here.
+hc_main_chart(
     {
         "chart": {
             "backgroundColor": "transparent",
@@ -757,29 +917,6 @@ _main_chart_clicked = hc_main_chart(
     key="hc-main-chart",
 )
 
-# Dedupe against the last-seen click - same pattern the old Plotly chart's
-# `_register_click` used, since a component keeps returning the SAME value
-# on every subsequent rerun (e.g. toggling a checkbox below) until a NEW
-# point is clicked, not just once.
-if _main_chart_clicked and _main_chart_clicked != st.session_state.get("_last_main_chart_click"):
-    st.session_state["_last_main_chart_click"] = _main_chart_clicked
-    try:
-        _clicked_ts = pd.Timestamp(_main_chart_clicked)
-        _nearest = ct.index[ct.index.get_indexer([_clicked_ts], method="nearest")[0]]
-        st.session_state["selected_period"] = _nearest
-        st.session_state["period_picker"] = _nearest
-        st.session_state["_trigger_scroll"] = True
-        # A monotonic counter, not just a bool: components.html's iframe only
-        # re-executes its <script> when its content actually changes - a
-        # static script string worked once (first click) then silently did
-        # nothing on every later click, since Streamlit saw identical srcdoc
-        # content and didn't reload the iframe (confirmed live). Embedding
-        # this ever-increasing number in the script (below) guarantees the
-        # content differs on every genuine click.
-        st.session_state["_scroll_nonce"] = st.session_state.get("_scroll_nonce", 0) + 1
-    except (ValueError, TypeError, IndexError):
-        pass
-
 if show_event_bands:
     _legend_chips = "".join(
         f'<span style="display:inline-flex;align-items:center;gap:5px;margin-right:16px;font-size:0.82rem;">'
@@ -790,39 +927,13 @@ if show_event_bands:
     st.markdown(f'<div style="margin:2px 0 10px;">{_legend_chips}</div>', unsafe_allow_html=True)
 
 # ------------------------------------------------------ what caused the spike -
+# Scroll target for the main chart's click-to-navigate - the chart component
+# scrolls the page here itself right after a click (see hc_main_chart.py's
+# __scrollParentToGroupBars); this id must stay stable.
 st.markdown(f'<div id="{ANCHOR_ID}"></div>', unsafe_allow_html=True)
-if st.session_state.get("_trigger_scroll"):
-    components.html(
-        f"""
-        <script>
-            // nonce {st.session_state.get("_scroll_nonce", 0)} - forces this
-            // iframe's content to differ from the last one, see the comment
-            // where _scroll_nonce is incremented
-            setTimeout(function() {{
-                var doc = window.parent.document;
-                var el = doc.getElementById('{ANCHOR_ID}');
-                if (el) {{ el.scrollIntoView({{behavior: 'smooth', block: 'start'}}); }}
-            }}, 200);
-        </script>
-        """,
-        height=1,
-    )
-    st.session_state["_trigger_scroll"] = False
 
-st.session_state.setdefault("selected_period", ct.index[-1])
-selected = st.session_state["selected_period"]
-options = list(ct.index[::-1])
-picked = st.selectbox(
-    "Selected period",
-    options=options,
-    index=options.index(selected) if selected in options else 0,
-    format_func=lambda d: d.strftime("%B %Y"),
-    key="period_picker",
-)
-if picked != selected:
-    st.session_state["selected_period"] = picked
-    selected = picked
-
+# `selected` is chosen by the "Selected period" picker rendered near the top
+# of the page (above the KPI cards) - see that block for why it moved.
 period_groups = selected_period_group_table(group_long, selected)
 
 if not period_groups.empty:
@@ -842,7 +953,7 @@ if not period_groups.empty:
         # separate guess) - on the category axis, so it shows on both bar
         # charts' labels and their tooltips (Highcharts pairs each point
         # with its category by position automatically).
-        categories=[f"{CPI_GROUP_ICONS.get(g, '')} {g}".strip() for g in sorted_for_chart["group"]],
+        categories=[f"{g} · {CPI_GROUP_ICONS.get(g, '')}".strip(" ·") for g in sorted_for_chart["group"]],
         left_pct=sorted_for_chart["mom_pct"],
         left_abs=sorted_for_chart["mom_abs"],
         left_title="Month-to-Month Inflation by Group",
@@ -875,6 +986,15 @@ if not period_groups.empty:
     st.caption(f"{SOURCE_NOTE}. Relative Magnitude = rank among the 12 groups that month, not an official weight.")
 else:
     st.warning("No per-group data available for this period yet.")
+
+st.divider()
+
+# ----------------------------------------------------- Inflation Heat Map -
+# Rendered directly below the "Inflation by Group" bar charts. Same
+# implementation as the standalone Inflation Heatmap page (they both call
+# pricelab.dashboard.heatmap.render_inflation_heatmap) so the controls,
+# table, colour coding and data are identical in both places.
+render_inflation_heatmap(show_title=False, caption_at_bottom=True)
 
 st.divider()
 

@@ -11,7 +11,14 @@ from pricelab.config import raw_dir
 def _require_raw_data():
     missing = [
         name
-        for name in ("Inflation.xlsx", "CPI ITEMs.xlsx", "crops intern.xlsx")
+        for name in (
+            "Inflation.xlsx",
+            "CPI ITEMs.xlsx",
+            "crops intern.xlsx",
+            "Groups.xlsx",
+            "CPI WT.xlsx",
+            "price data.xlsx",
+        )
         if not (raw_dir() / name).is_file()
     ]
     if missing:

@@ -17,7 +17,7 @@ def test_expected_sources_and_variables(ingest_result):
     m = ingest_result.master
     assert {"inflation_cpi_groups", "crop_production"} <= set(m["source"])
     assert {"cpi_index", "crop_area", "crop_production", "crop_yield"} <= set(m["variable"])
-    assert len(ingest_result.dimensions) == 3
+    assert len(ingest_result.dimensions) == 6
 
 
 def test_cpi_row_count(ingest_result):

@@ -45,3 +45,33 @@ cpi_item_dictionary:
   sheet: ITEMS
   loader: reference_table
   kind: dimension
+
+# --- added 2026-09-07, staged for upcoming work -------------------------------
+# COICOP group code -> name lookup (GroupCode, GroupName). 12 rows.
+cpi_group_dictionary:
+  path: raw/Groups.xlsx
+  sheet: Sheet1
+  loader: reference_table
+  kind: dimension
+
+# CPI basket weights by item and calendar month (Month, ItemCode, Weight0-5 -
+# the successive basket revisions). ~4.3k rows. Kept as an interim table for
+# now; promote to a fact loader when we start weighting series by it.
+cpi_weights:
+  path: raw/CPI WT.xlsx
+  sheet: Sheet1
+  loader: reference_table
+  kind: dimension
+
+# Item-level retail prices by city and month (coicop, description, unit,
+# citycode, cityname, month, year, price). ~150k rows, monthly, 2025-> .
+# Genuinely fact-shaped, but wiring it into master_long needs a dedicated
+# loader with city->region and item->commodity harmonization - deferred, so
+# it lands in data/interim/retail_prices.parquet as-is for now.
+retail_prices:
+  path: raw/price data.xlsx
+  sheet: Sheet1
+  loader: reference_table
+  kind: dimension
+  domain: macro
+  frequency: M

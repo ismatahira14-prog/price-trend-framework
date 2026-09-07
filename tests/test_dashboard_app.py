@@ -94,8 +94,11 @@ def test_home_page_loads_without_exceptions():
     # period picker and 12-group breakdown (bar chart + table) stayed. 6:
     # Inflation (CPI), MoM, YoY, Historic Low, Historic High, Snapshot.
     assert len(at.metric) == 6
-    # Spike-section breakdown + month-by-month + year-by-year + Global Events.
-    assert len(at.dataframe) == 4
+    # Spike-section breakdown + inflation heat-map table + month-by-month +
+    # year-by-year + Global Events. The heat map (same component as the
+    # standalone Inflation Heatmap page) is rendered inline directly below
+    # the "Inflation by Group" bar charts.
+    assert len(at.dataframe) == 5
     # No Plotly left on this page at all - the 12-group breakdown is now a
     # pair of Highcharts bar charts (MoM/YoY, see _highcharts_group_bars).
     # The Inflation Index & Change chart is a real custom component
@@ -114,7 +117,7 @@ def test_historic_low_and_high_kpis_use_the_full_series_not_just_latest():
     """Historic Low/High Inflation must be the min/max of the WHOLE
     historical YoY series (and the exact month/year each occurred in) -
     genuinely computed, not the latest value or a hardcoded number. The
-    Inflation Snapshot card must be the trailing-12-month YoY average, not
+    12M Average MoM card must be the trailing-12-month MoM average, not
     another copy of the latest single month's value."""
     import sys
     from pathlib import Path as _Path
@@ -129,38 +132,42 @@ def test_historic_low_and_high_kpis_use_the_full_series_not_just_latest():
     expected_high_date = ct["yoy_pct"].idxmax()
     expected_high_val = ct["yoy_pct"].max()
     last_12 = ct.tail(12)
-    expected_snapshot_avg = last_12["yoy_pct"].mean()
-    expected_snapshot_range = f"{last_12.index.min():%b %Y} – {last_12.index.max():%b %Y}"
+    expected_mom_avg = last_12["mom_pct"].mean()
+    latest_period = f"{ct.index[-1]:%b %Y}"
+    low_period = f"{expected_low_date:%b %Y}"
+    high_period = f"{expected_high_date:%b %Y}"
+    average_period = f"{last_12.index.min():%b %Y}–{last_12.index.max():%b %Y}"
+
+    def metric_label(title, period):
+        return f"**{title}** · _{period}_"
 
     at = AppTest.from_file(str(APP_PATH), default_timeout=60).run()
     assert not at.exception, [e.message for e in at.exception]
     metrics = {m.label: m for m in at.metric}
 
-    assert metrics["Inflation (CPI)"].value == f"{ct['cpi'].iloc[-1]:.2f}"
-    low = metrics["Historic Low Inflation"]
-    high = metrics["Historic High Inflation"]
-    snapshot = metrics["Inflation Snapshot"]
+    cpi = metrics[metric_label("Inflation (CPI)", latest_period)]
+    low = metrics[metric_label("Historic Low Inflation", low_period)]
+    high = metrics[metric_label("Historic High Inflation", high_period)]
+    snapshot = metrics[metric_label("12M Average MoM", average_period)]
+    assert cpi.value == f"{ct['cpi'].iloc[-1]:.2f}"
     assert low.value == f"{expected_low_val:+.2f}%"
-    assert low.delta == f"{expected_low_date:%B %Y}"
     assert high.value == f"{expected_high_val:+.2f}%"
-    assert high.delta == f"{expected_high_date:%B %Y}"
     # The two are genuinely different extremes, not the same value twice.
     assert low.value != high.value
-    assert snapshot.value == f"{expected_snapshot_avg:+.2f}%"
-    assert snapshot.delta == expected_snapshot_range
+    assert snapshot.value == f"{expected_mom_avg:+.2f}%"
     # A trailing-12-month average, not just a re-display of the single
-    # latest month's YoY (they'd only coincide by pure chance).
-    assert snapshot.value != metrics["Year-over-year"].value
+    # latest month's MoM (they'd only coincide by pure chance).
+    assert snapshot.value != metrics[metric_label("Month-over-month", latest_period)].value
 
     # Every KPI card has its own icon - a real single-emoji value, not left
     # unset (icon defaults to "" when not passed).
     for label in (
-        "Inflation (CPI)",
-        "Month-over-month",
-        "Year-over-year",
-        "Historic Low Inflation",
-        "Historic High Inflation",
-        "Inflation Snapshot",
+        metric_label("Inflation (CPI)", latest_period),
+        metric_label("Month-over-month", latest_period),
+        metric_label("Year-over-year", latest_period),
+        metric_label("Historic Low Inflation", low_period),
+        metric_label("Historic High Inflation", high_period),
+        metric_label("12M Average MoM", average_period),
     ):
         assert metrics[label].icon, f"{label} has no icon set"
 
@@ -206,10 +213,11 @@ def test_main_chart_full_width_with_pan_and_zoom_controls():
 
     # Regression check: the chart used to sit in st.columns([9, 3]) with an
     # empty reserved column beside it. Column count across the WHOLE page
-    # should now be exactly 8 (6 top KPIs + 2 band checkboxes - the M/M-YoY
-    # comparison section's own 2 columns were removed along with it) - if
-    # the 9:3 split were still there, it'd be higher.
-    assert len(at.columns) == 8
+    # should now be exactly 13 (6 top KPIs + 2 band checkboxes + the inline
+    # inflation heat map's 5 "recent inflation" year-range buttons - the
+    # M/M-YoY comparison section's own 2 columns were removed along with it)
+    # - if the 9:3 split were still there, it'd be higher.
+    assert len(at.columns) == 13
 
     cfg = _main_chart_config(at)
 
@@ -288,11 +296,11 @@ def test_group_bars_share_one_category_order_and_a_synced_mode_toggle():
     right_categories = right_config["xAxis"]["categories"]
 
     # Same groups, same order, in both charts - and it's the real 12
-    # COICOP groups (each prefixed with its shared CPI_GROUP_ICONS emoji,
+    # COICOP groups (each suffixed with its shared CPI_GROUP_ICONS emoji,
     # same as the Inflation Heatmap page's column headers - not a
     # separately hand-built list or a different icon set).
     assert left_categories == right_categories
-    expected = {f"{CPI_GROUP_ICONS.get(g, '')} {g}".strip() for g in CPI_GROUP_ORDER[1:]}
+    expected = {f"{g} · {CPI_GROUP_ICONS.get(g, '')}".strip(" ·") for g in CPI_GROUP_ORDER[1:]}
     assert set(left_categories) == expected
     assert len(left_categories) == 12
 
@@ -328,12 +336,87 @@ def test_group_bars_share_one_category_order_and_a_synced_mode_toggle():
     assert "Percentage" in srcdoc and "Absolute Value" in srcdoc
 
 
+def test_clicking_the_main_chart_syncs_the_exact_period_into_the_group_bars():
+    """The main Inflation Index chart's click-to-navigate: clicking a point
+    (the `hc_main_chart` component reports the x-axis DATE under the cursor,
+    from the chart's own axis mapping - see hc_main_chart.py) must select
+    that EXACT month everywhere below - the "Selected period" picker, the
+    period-specific KPI cards, and BOTH group bar charts (MoM + YoY) - never
+    a nearest / shifted month. The chart component also scrolls the page to
+    that section on click. This broke once when the picker moved above the
+    KPIs; keep it covered.
+    """
+    import sys
+    from pathlib import Path as _Path
+
+    sys.path.insert(0, str(_Path(__file__).resolve().parents[1] / "src"))
+    from pricelab.dashboard.data import cpi_change_table, cpi_series, load_master_long
+
+    ct = cpi_change_table(cpi_series(load_master_long(), ["General"])["General"])
+
+    for target in (ct.index[3], ct.index[len(ct) // 2], ct.index[-2]):
+        at = AppTest.from_file(str(APP_PATH), default_timeout=60).run()
+        # Simulate the component reporting a click on `target` (ISO, snapped
+        # to the first of the month, exactly as the frontend sends it).
+        at.session_state["hc-main-chart"] = f"{target:%Y-%m-%d}"
+        at.run()
+        assert not at.exception, (target, [e.message for e in at.exception])
+
+        picked = at.selectbox[0].value
+        assert (picked.year, picked.month) == (target.year, target.month), (
+            f"picker landed on {picked}, not the clicked {target:%b %Y}"
+        )
+
+        # KPI card 0 (Inflation CPI) is period-specific - exact value + label.
+        assert f"{target:%b %Y}" in at.metric[0].label
+        assert at.metric[0].value == f"{ct.loc[target, 'cpi']:.2f}"
+
+        # Both group bar charts carry the exact clicked month as their subtitle.
+        srcdoc = _group_bars_srcdoc(at)
+        left_config = _json_after(srcdoc, "Highcharts.chart('hc-group-mom', ")
+        right_config = _json_after(srcdoc, "Highcharts.chart('hc-group-yoy', ")
+        assert left_config["subtitle"]["text"] == f"Selected period: {target:%B %Y}"
+        assert right_config["subtitle"]["text"] == f"Selected period: {target:%B %Y}"
+        # MoM (left) and YoY (right) datasets are both present for that period.
+        assert _json_after(srcdoc, "var __leftPct = ")
+        assert _json_after(srcdoc, "var __rightPct = ")
+
+    # The chart component carries the scroll-to-bar-graphs behaviour itself:
+    # it targets the "spike-section-anchor" div and fires on every click.
+    anchor_id = "spike-section-anchor"
+    assert f'<div id="{anchor_id}"></div>' in at.get("markdown")[0].value or any(
+        anchor_id in m.value for m in at.get("markdown")
+    )
+    component_html = MAIN_CHART_COMPONENT_HTML.read_text(encoding="utf-8")
+    assert "__scrollParentToGroupBars" in component_html
+    assert component_html.count("__scrollParentToGroupBars()") >= 1  # called from the click handler
+    assert anchor_id in component_html
+    # Clicks land on the plot background AND directly on a line/point: both a
+    # chart-level and a per-point click handler must be wired.
+    assert "Highcharts.addEvent(__chart, 'click'" in component_html
+    assert "point: { events: { click:" in component_html
+    # The continuous chart-level x-value is snapped to the NEAREST month so a
+    # click near a boundary never selects the month before/after.
+    assert "getUTCDate() >= 15" in component_html
+
+    # A click outside the data range clamps to the nearest endpoint (the
+    # latest month) rather than erroring or selecting nothing.
+    at = AppTest.from_file(str(APP_PATH), default_timeout=60).run()
+    at.session_state["hc-main-chart"] = "2099-01-01"
+    at.run()
+    assert not at.exception, [e.message for e in at.exception]
+    picked = at.selectbox[0].value
+    assert (picked.year, picked.month) == (ct.index[-1].year, ct.index[-1].month)
+
+
 def test_archive_tables_show_all_12_real_groups():
     from pricelab.dashboard.theme import CPI_GROUP_ORDER
 
     at = AppTest.from_file(str(APP_PATH), default_timeout=60).run()
     assert not at.exception, [e.message for e in at.exception]
-    spike, monthly, yearly, ge = (d.value for d in at.dataframe)
+    # [1] is the inline inflation heat-map table (months x CPI groups) -
+    # not one of the archive tables under test here.
+    spike, _heatmap, monthly, yearly, ge = (d.value for d in at.dataframe)
     assert set(monthly["Inflation Group"]) == set(CPI_GROUP_ORDER[1:])
     assert set(yearly["Inflation Group"]) == set(CPI_GROUP_ORDER[1:])
     assert set(spike["Inflation Group"]) <= set(CPI_GROUP_ORDER[1:])

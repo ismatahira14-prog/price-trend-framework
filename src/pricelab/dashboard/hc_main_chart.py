@@ -111,6 +111,31 @@ def _write_hc_main_chart_component() -> str:
 
     var __chart = null;
 
+    // Click-to-navigate: after a click reports its month back to Python (which
+    // reruns and re-selects that period in the group bar charts below), bring
+    // that section into view. Done from inside THIS component - not a separate
+    // components.html scroll iframe on the page, which Streamlit rendered at a
+    // stray ~460px tall and left a big blank gap above the bars (reported
+    // live). The parent rerun keeps shifting layout for a beat (this
+    // component re-renders, the bars' own iframe self-resizes), so re-issue
+    // the scroll on an interval for ~5s, stopping once the target holds still.
+    function __scrollParentToGroupBars() {{
+        var doc;
+        try {{ doc = window.parent.document; }} catch (e) {{ return; }}
+        var started = Date.now(), lastTop = null, stable = 0;
+        function step() {{
+            var el = doc.getElementById('spike-section-anchor');
+            if (el) {{
+                el.scrollIntoView({{block: 'start', behavior: 'auto'}});
+                var top = el.getBoundingClientRect().top;
+                if (lastTop !== null && Math.abs(top - lastTop) < 3) stable++; else stable = 0;
+                lastTop = top;
+            }}
+            if (Date.now() - started < 5000 && stable < 5) setTimeout(step, 150);
+        }}
+        setTimeout(step, 120);
+    }}
+
     function __zoom(factor) {{
         if (!__chart) return;
         var ax = __chart.xAxis[0];
@@ -173,22 +198,47 @@ def _write_hc_main_chart_component() -> str:
         chartDiv.style.height = (height - 46) + 'px';
         if (__chart) {{ __chart.destroy(); __chart = null; }}
         __chart = Highcharts.stockChart('hc-main-chart', args.config);
-        __chart.update({{plotOptions: {{series: {{cursor: 'pointer'}}}}}}, false);
-        // Chart-level click (not per-series): a series' own 'click' event
-        // only fires when the click lands close to that series's actual
-        // rendered line/area - with 3 series on very different scales (CPI
-        // 0-300ish vs MoM/YoY roughly -25 to +30), most of the plot area
-        // isn't "close" to any of them, so most clicks were silently
-        // swallowed (verified live - clicking away from a line produced
-        // zero setValue calls). `chart.events.click` fires anywhere in the
-        // plot and hands back the x-axis VALUE under the cursor directly
-        // via `e.xAxis[0].value`, matching "click anywhere on the
-        // timeline" rather than "click exactly on a data point".
+
+        // Turn a millisecond x-value into a "YYYY-MM-01" string and report it
+        // back to Python + scroll to the group bars. Shared by both click
+        // paths below. The chart-level handler passes a CONTINUOUS x value
+        // (wherever the cursor is), which near a month boundary can sit a few
+        // hours into the previous month and truncate to the wrong one - so
+        // snap to the NEAREST month start (data points are the 1st of each
+        // month, UTC). A point click already passes an exact 1st-of-month x,
+        // for which this snap is a no-op.
+        function __selectMonth(ms) {{
+            var d = new Date(ms);
+            var m = d.getUTCMonth() + (d.getUTCDate() >= 15 ? 1 : 0);
+            var snapped = new Date(Date.UTC(d.getUTCFullYear(), m, 1));
+            var ymd = snapped.getUTCFullYear() + '-'
+                + String(snapped.getUTCMonth() + 1).padStart(2, '0') + '-01';
+            setValue(ymd);
+            __scrollParentToGroupBars();
+        }}
+
+        __chart.update({{plotOptions: {{series: {{
+            cursor: 'pointer',
+            // Clicking DIRECTLY on a line/point/area consumes the event as a
+            // point (or series) click - the chart-level handler below never
+            // sees it (reported live: "works under the CPI line, not on the
+            // lines"). Handle those here too: the clicked point's own `x` is
+            // the exact month. (Purely additive - no tooltip/hover/marker
+            // options touched.)
+            point: {{ events: {{ click: function() {{ __selectMonth(this.x); }} }} }},
+            events: {{ click: function(e) {{
+                if (e && e.point) __selectMonth(e.point.x);
+            }} }}
+        }}}}}}, false);
+
+        // Chart-level click handles everywhere else in the plot - the large
+        // areas not close to any of the 3 series (CPI 0-300ish vs MoM/YoY
+        // roughly -25..+30, so most of the plot isn't near a line). Hands
+        // back the x-axis VALUE under the cursor directly - "click anywhere
+        // on the timeline", not "click exactly on a data point".
         Highcharts.addEvent(__chart, 'click', function(e) {{
             if (!e.xAxis || !e.xAxis[0]) return;
-            var d = new Date(e.xAxis[0].value);
-            var ymd = d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-01';
-            setValue(ymd);
+            __selectMonth(e.xAxis[0].value);
         }});
         __renderEventLabels();
         Highcharts.addEvent(__chart, 'redraw', __renderEventLabels);
