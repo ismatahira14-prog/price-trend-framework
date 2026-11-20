@@ -7,16 +7,292 @@ wraps these with `st.cache_data`; tests can call them directly.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import duckdb
+import numpy as np
 import pandas as pd
 
 from pricelab.integration.duckdb_export import snapshot_path
+from pricelab.integration.harmonize import canon_commodity
+from pricelab.integration.sql_export import REQUIRED_DATABASE, _engine
 
 
 class SnapshotMissing(FileNotFoundError):
     pass
+
+
+class ImisDataError(RuntimeError):
+    """The IMIS dashboard source is unavailable or has an unexpected schema."""
+
+
+_INFLATION_COLUMNS = ["General", *(f"G{i:02d}" for i in range(1, 13))]
+
+
+def load_imis_inflation() -> pd.DataFrame:
+    """Load Home-page CPI data directly and read-only from IMIS.
+
+    The database name is checked again on the live connection. This is
+    intentionally fail-closed: no fallback to Excel, DuckDB, or another SQL
+    Server database is allowed for the default page.
+    """
+    try:
+        from sqlalchemy import text
+    except ImportError as exc:  # pragma: no cover - dependency error at deployment
+        raise ImisDataError("SQL Server dependencies are not installed") from exc
+
+    engine = _engine()
+    try:
+        with engine.connect() as connection:
+            actual_database = connection.execute(text("SELECT DB_NAME()" )).scalar_one()
+            if str(actual_database).casefold() != REQUIRED_DATABASE.casefold():
+                raise ImisDataError(
+                    f"Refusing data access: expected {REQUIRED_DATABASE!r}, "
+                    f"connected to {actual_database!r}"
+                )
+            groups = pd.read_sql(
+                text("SELECT [Code], [Description] FROM [dbo].[PriceGroup]"), connection
+            )
+            inflation = pd.read_sql(
+                text(
+                    "SELECT [Year], [Month], [General], [G01], [G02], [G03], "
+                    "[G04], [G05], [G06], [G07], [G08], [G09], [G10], [G11], [G12] "
+                    "FROM [dbo].[Inflation] ORDER BY [Year], [Month]"
+                ),
+                connection,
+            )
+    finally:
+        engine.dispose()
+
+    code_to_group: dict[str, str] = {"General": "General"}
+    for row in groups.itertuples(index=False):
+        if pd.isna(row.Code) or pd.isna(row.Description):
+            continue
+        code = int(float(row.Code))
+        column = "General" if code == 0 else f"G{code:02d}"
+        code_to_group[column] = canon_commodity(str(row.Description).strip())
+
+    missing_groups = sorted(set(_INFLATION_COLUMNS) - set(code_to_group))
+    missing_columns = sorted(set(["Year", "Month", *_INFLATION_COLUMNS]) - set(inflation.columns))
+    if missing_groups or missing_columns:
+        raise ImisDataError(
+            f"Unexpected IMIS schema (missing group mappings={missing_groups}, "
+            f"missing Inflation columns={missing_columns})"
+        )
+
+    long = inflation.melt(
+        id_vars=["Year", "Month"],
+        value_vars=_INFLATION_COLUMNS,
+        var_name="group_code",
+        value_name="value",
+    ).dropna(subset=["value"])
+    dates = pd.to_datetime(
+        {"year": long["Year"], "month": long["Month"], "day": 1}, errors="coerce"
+    )
+    if dates.isna().any():
+        raise ImisDataError("IMIS Inflation contains an invalid Year/Month value")
+
+    return pd.DataFrame(
+        {
+            "date": dates,
+            "freq": "M",
+            "region": "Pakistan",
+            "region_level": "national",
+            "commodity": long["group_code"].map(code_to_group),
+            "variable": "cpi_index",
+            "value": pd.to_numeric(long["value"], errors="coerce"),
+            "unit": "2015-16 = 100",
+            "source": "IMIS.dbo.Inflation",
+            "is_imputed": False,
+        }
+    ).sort_values(["date", "commodity"]).reset_index(drop=True)
+
+
+_WEIGHT_COLS = [f"Weight{i}" for i in range(6)]
+
+
+def load_imis_item_drilldown(start_date: pd.Timestamp, end_date: pd.Timestamp) -> pd.DataFrame:
+    """Load item weights and city-price summaries directly from IMIS.
+
+    Weight0 is the overall basket and Weight1..Weight5 are the five
+    quantiles. CPI prices are first deduplicated to one arithmetic mean per
+    period/item/city, then summarized to an item-level geometric mean across
+    cities. Only positive prices participate in the GM.
+
+    ``dbo.CPI`` is scanned raw and aggregated in pandas: the equivalent
+    server-side query (``TRY_CONVERT``/``REPLACE`` in a CTE + ``STRING_AGG``
+    over 266k char rows) produces a catastrophic plan - minutes, and slow
+    enough to crash pyodbc under load. The plain scan is a few seconds.
+    """
+    try:
+        from sqlalchemy import text
+    except ImportError as exc:  # pragma: no cover
+        raise ImisDataError("SQL Server dependencies are not installed") from exc
+
+    engine = _engine()
+    try:
+        with engine.connect() as connection:
+            actual_database = connection.execute(text("SELECT DB_NAME()")).scalar_one()
+            if str(actual_database).casefold() != REQUIRED_DATABASE.casefold():
+                raise ImisDataError(
+                    f"Refusing data access: expected {REQUIRED_DATABASE!r}, "
+                    f"connected to {actual_database!r}"
+                )
+            prices = pd.read_sql(
+                text("SELECT [year],[month],[coicop],[citycode],[price] FROM [dbo].[CPI]"),
+                connection,
+            )
+            mapped = pd.read_sql(
+                text("SELECT DISTINCT [cpi] AS city FROM [dbo].[PVD] WHERE [cpi] <> 0"),
+                connection,
+            )
+            cpi_cities = pd.read_sql(
+                text("SELECT TRY_CONVERT(int,[CityCode]) AS city FROM [dbo].[CPI_CITY]"),
+                connection,
+            )
+            weights = pd.read_sql(
+                text(
+                    "SELECT RTRIM([ItemCode]) AS ItemCode, TRY_CONVERT(int,[Month]) AS m, "
+                    + ", ".join(f"[{c}]" for c in _WEIGHT_COLS)
+                    + " FROM [dbo].[CPI_WT]"
+                ),
+                connection,
+            )
+            items = pd.read_sql(
+                text(
+                    "SELECT RTRIM([ItemCode]) AS ItemCode, "
+                    "LTRIM(RTRIM([DescriptionLong])) AS DescriptionLong, "
+                    "LTRIM(RTRIM([Description])) AS [Description], "
+                    "LTRIM(RTRIM([Unit])) AS Unit FROM [dbo].[CPI_ITEMS]"
+                ),
+                connection,
+            )
+    finally:
+        engine.dispose()
+
+    prices["year"] = pd.to_numeric(prices["year"], errors="coerce")
+    prices["month"] = pd.to_numeric(prices["month"], errors="coerce")
+    prices["city"] = pd.to_numeric(prices["citycode"], errors="coerce")
+    prices["price"] = pd.to_numeric(prices["price"], errors="coerce")
+    prices["ItemCode"] = prices["coicop"].str.strip().str.replace("-", ".", regex=False)
+    prices = prices.dropna(subset=["year", "month", "city", "price"])
+    prices = prices[prices["price"] > 0]
+    prices[["year", "month", "city"]] = prices[["year", "month", "city"]].astype(int)
+
+    prices["date"] = pd.to_datetime(
+        dict(year=prices["year"], month=prices["month"], day=1), errors="coerce"
+    )
+    lo, hi = pd.Timestamp(start_date).normalize(), pd.Timestamp(end_date).normalize()
+    prices = prices[(prices["date"] >= lo) & (prices["date"] <= hi)]
+
+    keep_cities = set(mapped["city"].dropna().astype(int)) & set(cpi_cities["city"].dropna().astype(int))
+    prices = prices[prices["city"].isin(keep_cities)]
+    if prices.empty:
+        return pd.DataFrame(
+            columns=["year", "month", "GroupCode", "ItemCode", "ItemDescription", "Unit",
+                     *_WEIGHT_COLS, "GMPrice", "CityCount", "MinCityPrice", "MaxCityPrice",
+                     "CityPricesJson"]
+        )
+
+    city_px = (
+        prices.groupby(["year", "month", "ItemCode", "city"], as_index=False)["price"]
+        .mean()
+        .rename(columns={"price": "CityPrice"})
+    )
+    city_px = city_px[city_px["CityPrice"] > 0].sort_values(
+        ["year", "month", "ItemCode", "city"]
+    )
+
+    keys = ["year", "month", "ItemCode"]
+    grp = city_px.assign(logp=np.log(city_px["CityPrice"])).groupby(keys, sort=False)
+    item_px = grp.agg(
+        GMPrice=("logp", lambda s: float(np.exp(s.mean()))),
+        CityCount=("CityPrice", "size"),
+        MinCityPrice=("CityPrice", "min"),
+        MaxCityPrice=("CityPrice", "max"),
+    ).reset_index()
+    pairs = (
+        city_px.assign(
+            _pair=[
+                [int(c), round(float(p), 4)]
+                for c, p in zip(city_px["city"], city_px["CityPrice"])
+            ]
+        )
+        .groupby(keys, sort=False)["_pair"]
+        .agg(list)
+        .apply(json.dumps)
+        .rename("CityPricesJson")
+        .reset_index()
+    )
+    item_px = item_px.merge(pairs, on=keys)
+
+    w = weights.copy()
+    w["ItemCode"] = w["ItemCode"].str.strip()
+    merged = item_px.merge(w, left_on=["ItemCode", "month"], right_on=["ItemCode", "m"], how="inner")
+
+    it = items.copy()
+    it["ItemCode"] = it["ItemCode"].str.strip()
+    it["ItemDescription"] = (
+        it["DescriptionLong"].where(it["DescriptionLong"].astype(bool))
+        .fillna(it["Description"].where(it["Description"].astype(bool)))
+        .fillna(it["ItemCode"])
+    )
+    it["Unit"] = it["Unit"].where(it["Unit"].astype(bool))
+    merged = merged.merge(
+        it[["ItemCode", "ItemDescription", "Unit"]], on="ItemCode", how="inner"
+    )
+
+    merged["GroupCode"] = merged["ItemCode"].str.slice(0, 2)
+    out = merged[
+        ["year", "month", "GroupCode", "ItemCode", "ItemDescription", "Unit",
+         *_WEIGHT_COLS, "GMPrice", "CityCount", "MinCityPrice", "MaxCityPrice", "CityPricesJson"]
+    ]
+    return (
+        out.sort_values(
+            ["year", "month", "GroupCode", "Weight0", "ItemCode"],
+            ascending=[True, True, True, False, True],
+        ).reset_index(drop=True)
+    )
+
+
+def load_imis_cpi_district_map() -> pd.DataFrame:
+    """Return the authoritative IMIS CPI-city to PVD-district mapping."""
+    try:
+        from sqlalchemy import text
+    except ImportError as exc:  # pragma: no cover
+        raise ImisDataError("SQL Server dependencies are not installed") from exc
+
+    engine = _engine()
+    query = text(
+        """
+        SELECT RTRIM(p.[pvid]) AS ProvinceCode,
+               LTRIM(RTRIM(p.[pv])) AS ProvinceName,
+               RTRIM(p.[dvid]) AS DivisionCode,
+               LTRIM(RTRIM(p.[dv])) AS DivisionName,
+               RTRIM(p.[dsid]) AS DistrictCode,
+               LTRIM(RTRIM(p.[ds])) AS DistrictName,
+               p.[cpi] AS CityCode,
+               LTRIM(RTRIM(c.[CityName])) AS CityName
+        FROM [dbo].[PVD] p
+        INNER JOIN [dbo].[CPI_CITY] c
+            ON TRY_CONVERT(int, c.[CityCode]) = p.[cpi]
+        WHERE p.[cpi] <> 0
+        ORDER BY p.[cpi], p.[dsid]
+        """
+    )
+    try:
+        with engine.connect() as connection:
+            actual_database = connection.execute(text("SELECT DB_NAME()")).scalar_one()
+            if str(actual_database).casefold() != REQUIRED_DATABASE.casefold():
+                raise ImisDataError(
+                    f"Refusing data access: expected {REQUIRED_DATABASE!r}, "
+                    f"connected to {actual_database!r}"
+                )
+            result = pd.read_sql(query, connection)
+    finally:
+        engine.dispose()
+    return result
 
 
 def _connect(path: str | Path | None = None) -> duckdb.DuckDBPyConnection:

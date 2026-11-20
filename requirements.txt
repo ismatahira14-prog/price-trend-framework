@@ -2,4 +2,4 @@
 # Installs pricelab (src/pricelab) plus the [dashboard] extra (streamlit, plotly).
 # Deliberately does NOT include the [sqlserver] extra - the deployed dashboard
 # reads the committed DuckDB snapshot, not a database server.
--e .[dashboard]
+-e .[dashboard,sqlserver]

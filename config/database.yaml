@@ -10,13 +10,12 @@
 
 sql_server:
   enabled: true
-  server: "localhost"          # default instance -> just the machine name
-  database: "PriceTrendFramework"
+  # Connection details and credentials belong in the ignored `.env` file.
+  # See `.env.example` for PRICELAB_SQL_* variables.
   driver: "ODBC Driver 17 for SQL Server"
-  trusted_connection: true     # Windows Authentication (your login, no password)
-  # username / password only used if trusted_connection is false
-  username: ""
-  password: ""
+  trusted_connection: false
+  encrypt: true
+  trust_server_certificate: false
 
 snapshot:
   path: "processed/pricelab.duckdb"   # relative to data_dir()

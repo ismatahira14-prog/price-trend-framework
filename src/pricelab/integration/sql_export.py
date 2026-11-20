@@ -12,16 +12,59 @@ Requires the optional ``sqlserver`` extra: ``pip install -e ".[sqlserver]"``.
 from __future__ import annotations
 
 import logging
+import os
 
 import pandas as pd
 
 from pricelab.config import load_config
 
 log = logging.getLogger("pricelab.integration.sql")
+REQUIRED_DATABASE = "IMIS"
 
 
 class SqlServerUnavailable(RuntimeError):
     """Raised when the sqlserver extra isn't installed or the server can't be reached."""
+
+
+def _as_bool(value: str | bool | None, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def connection_config() -> dict:
+    """Return SQL Server settings, with secrets sourced only from the environment."""
+    base = dict((load_config()["database"] or {}).get("sql_server", {}))
+    base.update(
+        server=os.getenv("PRICELAB_SQL_SERVER", ""),
+        port=os.getenv("PRICELAB_SQL_PORT", "1433"),
+        database=os.getenv("PRICELAB_SQL_DATABASE", "master"),
+        username=os.getenv("PRICELAB_SQL_USERNAME", ""),
+        password=os.getenv("PRICELAB_SQL_PASSWORD", ""),
+        trusted_connection=_as_bool(
+            os.getenv("PRICELAB_SQL_TRUSTED_CONNECTION"),
+            base.get("trusted_connection", False),
+        ),
+        encrypt=_as_bool(os.getenv("PRICELAB_SQL_ENCRYPT"), base.get("encrypt", True)),
+        trust_server_certificate=_as_bool(
+            os.getenv("PRICELAB_SQL_TRUST_SERVER_CERTIFICATE"),
+            base.get("trust_server_certificate", False),
+        ),
+    )
+    missing = [name for name in ("server", "database") if not base.get(name)]
+    if not base["trusted_connection"]:
+        missing += [name for name in ("username", "password") if not base.get(name)]
+    if missing:
+        names = ", ".join(f"PRICELAB_SQL_{name.upper()}" for name in missing)
+        raise SqlServerUnavailable(f"Missing SQL Server settings in .env: {names}")
+    if str(base["database"]).casefold() != REQUIRED_DATABASE.casefold():
+        raise SqlServerUnavailable(
+            f"Refusing SQL Server access: PRICELAB_SQL_DATABASE must be "
+            f"{REQUIRED_DATABASE!r}, got {base['database']!r}"
+        )
+    return base
 
 
 def _engine():
@@ -33,11 +76,15 @@ def _engine():
             "sqlalchemy/pyodbc not installed. Run: pip install -e \".[sqlserver]\""
         ) from e
 
-    cfg = (load_config()["database"] or {}).get("sql_server", {})
+    cfg = connection_config()
     if not cfg.get("enabled", True):
         raise SqlServerUnavailable("sql_server.enabled is false in config/database.yaml")
 
-    query = {"driver": cfg.get("driver", "ODBC Driver 17 for SQL Server")}
+    query = {
+        "driver": cfg.get("driver", "ODBC Driver 18 for SQL Server"),
+        "Encrypt": "yes" if cfg["encrypt"] else "no",
+        "TrustServerCertificate": "yes" if cfg["trust_server_certificate"] else "no",
+    }
     if cfg.get("trusted_connection", True):
         query["Trusted_Connection"] = "yes"
 
@@ -46,6 +93,7 @@ def _engine():
         username=cfg.get("username") or None,
         password=cfg.get("password") or None,
         host=cfg.get("server", "localhost"),
+        port=int(cfg["port"]) if cfg.get("port") else None,
         database=cfg.get("database", "PriceTrendFramework"),
         query=query,
     )
@@ -54,31 +102,12 @@ def _engine():
 
 
 def _ensure_database(cfg: dict) -> None:
-    """CREATE DATABASE if it doesn't exist yet (connects to `master` to do so)."""
-    from sqlalchemy import create_engine, text
-    from sqlalchemy.engine import URL
-
-    dbname = cfg.get("database", "PriceTrendFramework")
-    query = {"driver": cfg.get("driver", "ODBC Driver 17 for SQL Server")}
-    if cfg.get("trusted_connection", True):
-        query["Trusted_Connection"] = "yes"
-    master_url = URL.create(
-        "mssql+pyodbc",
-        username=cfg.get("username") or None,
-        password=cfg.get("password") or None,
-        host=cfg.get("server", "localhost"),
-        database="master",
-        query=query,
-    )
-    engine = create_engine(master_url, isolation_level="AUTOCOMMIT")
-    with engine.connect() as conn:
-        exists = conn.execute(
-            text("SELECT 1 FROM sys.databases WHERE name = :name"), {"name": dbname}
-        ).first()
-        if not exists:
-            log.info("creating database %s", dbname)
-            conn.execute(text(f"CREATE DATABASE [{dbname}]"))
-    engine.dispose()
+    """Validate the sole permitted database; never connect through ``master``."""
+    dbname = str(cfg.get("database", ""))
+    if dbname.casefold() != REQUIRED_DATABASE.casefold():
+        raise SqlServerUnavailable(
+            f"Refusing database creation/access outside {REQUIRED_DATABASE!r}: {dbname!r}"
+        )
 
 
 def write_sql_server(
@@ -91,7 +120,7 @@ def write_sql_server(
     catch that and continue (this is a local convenience, not a hard
     dependency of the pipeline).
     """
-    cfg = (load_config()["database"] or {}).get("sql_server", {})
+    cfg = connection_config()
     _ensure_database(cfg)
     engine = _engine()
 

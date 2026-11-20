@@ -82,21 +82,67 @@ def _write_hc_main_chart_component() -> str:
 <meta charset="utf-8">
 <style>
   html, body {{ margin: 0; padding: 0; font-family: -apple-system, sans-serif; overflow: hidden; }}
-  .hc-zoom-btn {{
-      font: 12px -apple-system, sans-serif; padding: 4px 12px; margin-right: 4px;
-      border: 1px solid #d0d0d0; border-radius: 4px; background: #fafafa;
-      color: #333; cursor: pointer;
+  .hc-controls {{
+      display:flex; align-items:center; justify-content:flex-end; gap:12px;
+      margin:0 0 5px; color:#253c32; font-size:11px; white-space:nowrap;
+      overflow:visible;
   }}
-  .hc-zoom-btn:hover {{ background: #eef2f6; border-color: #a8c5e0; }}
+  .hc-actions {{ display:flex; align-items:center; justify-content:flex-end; gap:5px; }}
+  .hc-period, .hc-icon-btn, .hc-menu summary {{
+      height:30px; border:1px solid #c8d8d0; border-radius:7px; background:#fff;
+      color:#21382e; font:600 11px -apple-system, sans-serif; padding:0 8px;
+      cursor:pointer; box-shadow:0 1px 2px rgba(18,49,37,.04);
+      box-sizing:border-box; display:flex; align-items:center; gap:6px;
+  }}
+  .hc-period {{ appearance:auto; min-width:72px; }}
+  .hc-icon-btn {{ width:30px; padding:0; justify-content:center; font-size:15px; text-decoration:none; }}
+  .hc-action-icon {{ width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }}
+  .hc-period:hover, .hc-icon-btn:hover, .hc-menu summary:hover {{ border-color:#0b6e4f; color:#07533c; background:#f3faf7; }}
+  .hc-menu {{ position:relative; }}
+  .hc-menu summary {{ list-style:none; }}
+  .hc-menu summary::-webkit-details-marker {{ display:none; }}
+  .hc-menu-panel {{
+      position:absolute; z-index:20; right:0; top:34px; min-width:210px;
+      padding:9px 11px; background:#fff; border:1px solid #d7e3dd;
+      border-radius:10px; box-shadow:0 10px 28px rgba(18,49,37,.16);
+  }}
+  .hc-menu-panel label {{ display:flex; align-items:center; gap:8px; padding:6px 2px; cursor:pointer; }}
+  .hc-menu-panel input {{ accent-color:#0b6e4f; }}
+  @media (max-width: 560px) {{
+      .hc-controls {{ gap:7px; }}
+      .hc-actions {{ overflow-x:auto; }}
+  }}
 </style>
 </head>
 <body>
-<div style="margin-bottom:8px;">
-    <button onclick="__zoom(1)" class="hc-zoom-btn">1x</button>
-    <button onclick="__zoom(2)" class="hc-zoom-btn">2x</button>
-    <button onclick="__zoom(5)" class="hc-zoom-btn">5x</button>
-    <button onclick="__zoom(10)" class="hc-zoom-btn">10x</button>
-    <button onclick="__reset()" class="hc-zoom-btn" style="margin-left:10px;">Reset</button>
+<div class="hc-controls">
+  <div class="hc-actions">
+    <span aria-hidden="true">◷</span>
+    <select id="hc-display-period" class="hc-period" onchange="__applyPeriod()" title="Display period">
+        <option value="12">1Y · 12 months</option>
+        <option value="36">3Y · 36 months</option>
+        <option value="60" selected>5Y · 60 months</option>
+        <option value="120">10Y · 120 months</option>
+        <option value="all">All data</option>
+    </select>
+    <details class="hc-menu">
+      <summary title="Choose visible chart series">≋ Series</summary>
+      <div class="hc-menu-panel">
+        <label><input type="checkbox" data-series="0" checked onchange="__toggleSeries(this)"> CPI index (absolute)</label>
+        <label><input type="checkbox" data-series="1" checked onchange="__toggleSeries(this)"> Month-over-month (MoM)</label>
+        <label><input type="checkbox" data-series="2" checked onchange="__toggleSeries(this)"> Year-over-year (YoY)</label>
+      </div>
+    </details>
+    <details class="hc-menu">
+      <summary title="Add contextual bands to the chart">▥ Overlays</summary>
+      <div class="hc-menu-panel">
+        <label><input id="hc-events" type="checkbox" onchange="__toggleOverlays()"> Major events</label>
+        <label><input id="hc-severity" type="checkbox" onchange="__toggleOverlays()"> Inflation severity</label>
+      </div>
+    </details>
+    <button type="button" onclick="__downloadPng()" class="hc-icon-btn" title="Capture chart image (PNG)" aria-label="Capture chart image as PNG"><svg class="hc-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3l1.4-2h7.2L17 7h3v12H4V7Z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
+    <a id="hc-excel-download" class="hc-icon-btn" title="Download chart data (Excel)" aria-label="Download chart data as Excel"><svg class="hc-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6V3Z"/><path d="M15 3v5h4M9 11h7M9 15h7M9 19h7M12 9v10"/></svg></a>
+  </div>
 </div>
 <div id="hc-main-chart" style="width:100%;position:relative;"></div>
 <script>{_highstock_js()}</script>
@@ -110,6 +156,62 @@ def _write_hc_main_chart_component() -> str:
     function setValue(v) {{ sendToStreamlit("streamlit:setComponentValue", {{value: v, dataType: "json"}}); }}
 
     var __chart = null;
+
+    function __applyPeriod() {{
+        if (!__chart) return;
+        var ax = __chart.xAxis[0], ext = ax.getExtremes();
+        var value = document.getElementById('hc-display-period').value;
+        if (value === 'all') {{ ax.setExtremes(ext.dataMin, ext.dataMax); return; }}
+        var months = parseInt(value, 10), end = new Date(ext.dataMax);
+        var start = Date.UTC(end.getUTCFullYear(), end.getUTCMonth() - months + 1, 1);
+        ax.setExtremes(Math.max(ext.dataMin, start), ext.dataMax);
+    }}
+
+    function __toggleSeries(input) {{
+        if (!__chart) return;
+        var series = __chart.series[parseInt(input.dataset.series, 10)];
+        if (!series) return;
+        series.setVisible(input.checked, false);
+        __reflowAxes();
+    }}
+
+    var __emptyState = null;
+    function __reflowAxes() {{
+        if (!__chart) return;
+        var cpiOn = !!(__chart.series[0] && __chart.series[0].visible);
+        var changeOn = !!((__chart.series[1] && __chart.series[1].visible)
+            || (__chart.series[2] && __chart.series[2].visible));
+        if (cpiOn && changeOn) {{
+            __chart.yAxis[0].update({{visible:true, top:'0%', height:'58%', gridLineWidth:1}}, false);
+            __chart.yAxis[1].update({{visible:true, top:'66%', height:'28%', gridLineWidth:1}}, false);
+        }} else if (cpiOn) {{
+            __chart.yAxis[0].update({{visible:true, top:'0%', height:'92%', gridLineWidth:1}}, false);
+            __chart.yAxis[1].update({{visible:false, gridLineWidth:0}}, false);
+        }} else if (changeOn) {{
+            __chart.yAxis[0].update({{visible:false, gridLineWidth:0}}, false);
+            __chart.yAxis[1].update({{visible:true, top:'0%', height:'92%', gridLineWidth:1}}, false);
+        }} else {{
+            __chart.yAxis[0].update({{visible:false, gridLineWidth:0}}, false);
+            __chart.yAxis[1].update({{visible:false, gridLineWidth:0}}, false);
+        }}
+        // Recompute extremes from only visible series after every layout
+        // transition. Only touch the two analytical axes: Highcharts Stock
+        // also owns internal navigator axes, and resetting those caused
+        // stray/misaligned grid lines after series toggles.
+        [__chart.yAxis[0], __chart.yAxis[1]].forEach(function(axis) {{
+            if (axis && axis.visible) axis.setExtremes(null, null, false);
+        }});
+        __chart.redraw();
+        if (__emptyState) {{ __emptyState.destroy(); __emptyState = null; }}
+        if (!cpiOn && !changeOn) {{
+            __emptyState = __chart.renderer.label(
+                'No series selected — use the Series menu to display data',
+                __chart.plotLeft + (__chart.plotWidth / 2),
+                __chart.plotTop + (__chart.plotHeight / 2)
+            ).attr({{align:'center', zIndex:8, padding:10, r:7, fill:'#F4F7F5', stroke:'#D7E3DD'}})
+             .css({{color:'#607269', fontSize:'12px', fontWeight:'600'}}).add();
+        }}
+    }}
 
     // Click-to-navigate: after a click reports its month back to Python (which
     // reruns and re-selects that period in the group bar charts below), bring
@@ -136,18 +238,40 @@ def _write_hc_main_chart_component() -> str:
         setTimeout(step, 120);
     }}
 
-    function __zoom(factor) {{
+    function __toggleOverlays() {{
         if (!__chart) return;
-        var ax = __chart.xAxis[0];
-        var ext = ax.getExtremes();
-        var span = (ext.dataMax - ext.dataMin) / factor;
-        ax.setExtremes(Math.max(ext.dataMin, ext.dataMax - span), ext.dataMax);
+        var available = __chart.options.availableOverlays || {{}};
+        var eventsOn = document.getElementById('hc-events').checked;
+        var severityOn = document.getElementById('hc-severity').checked;
+        __chart.options.eventLabels = eventsOn ? (available.eventLabels || []) : [];
+        __chart.xAxis[0].update({{plotBands: eventsOn ? (available.eventBands || []) : []}}, false);
+        __chart.yAxis[1].update({{plotBands: severityOn ? (available.severityBands || []) : []}}, false);
+        __chart.redraw();
     }}
-    function __reset() {{
+
+    function __downloadPng() {{
         if (!__chart) return;
-        var ax = __chart.xAxis[0];
-        var ext = ax.getExtremes();
-        ax.setExtremes(ext.dataMin, ext.dataMax);
+        var svgNode = __chart.container.querySelector('svg');
+        if (!svgNode) return;
+        var svg = new XMLSerializer().serializeToString(svgNode);
+        var blob = new Blob([svg], {{type:'image/svg+xml;charset=utf-8'}});
+        var url = URL.createObjectURL(blob);
+        var image = new Image();
+        image.onload = function() {{
+            var scale = 2, canvas = document.createElement('canvas');
+            canvas.width = __chart.chartWidth * scale; canvas.height = __chart.chartHeight * scale;
+            var ctx = canvas.getContext('2d');
+            ctx.scale(scale, scale); ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, __chart.chartWidth, __chart.chartHeight); ctx.drawImage(image, 0, 0);
+            URL.revokeObjectURL(url);
+            canvas.toBlob(function(png) {{
+                var link = document.createElement('a');
+                link.href = URL.createObjectURL(png); link.download = 'inflation-index-and-change.png';
+                document.body.appendChild(link); link.click(); link.remove();
+                setTimeout(function() {{ URL.revokeObjectURL(link.href); }}, 1000);
+            }}, 'image/png');
+        }};
+        image.src = url;
     }}
 
     function __renderEventLabels() {{
@@ -195,9 +319,15 @@ def _write_hc_main_chart_component() -> str:
     function __buildChart(args) {{
         var height = args.height || 520;
         var chartDiv = document.getElementById('hc-main-chart');
+        var excel = (args.config && args.config.excelDownload) || {{}};
+        var excelLink = document.getElementById('hc-excel-download');
+        excelLink.href = 'data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,' + (excel.base64 || '');
+        excelLink.download = excel.filename || 'chart-data.xlsx';
         chartDiv.style.height = (height - 46) + 'px';
         if (__chart) {{ __chart.destroy(); __chart = null; }}
         __chart = Highcharts.stockChart('hc-main-chart', args.config);
+        __applyPeriod();
+        __reflowAxes();
 
         // Turn a millisecond x-value into a "YYYY-MM-01" string and report it
         // back to Python + scroll to the group bars. Shared by both click
@@ -273,4 +403,10 @@ def hc_main_chart(config: dict, *, height: int = 520, key: str | None = None) ->
     NEW point is clicked - dedupe against the last-seen value (see the call
     site) before reacting to it, the same way the old `_register_click` did.
     """
+    # Design-system rule: every analytical chart owns a meaningful native
+    # title. Surrounding page headings and toolbar labels are not substitutes
+    # because they disappear when a chart is downloaded or reused.
+    title = str((config.get("title") or {}).get("text") or "").strip()
+    if not title:
+        raise ValueError("Every chart must define a non-empty native title.text")
     return _hc_main_chart_component(config=config, height=height, key=key, default=None)

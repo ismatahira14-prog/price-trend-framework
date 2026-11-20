@@ -1,13 +1,15 @@
-> **Built during my internship at the Pakistan Bureau of Statistics (PBS).**
->
-> 🔗 **Live dashboard:** [your streamlit.app link] · 📊 Monthly CPI for 13 COICOP groups (Jul 2016 – Jul 2026) + crop production data
-> 🛠️ Python · pandas · Streamlit · Plotly · Highcharts · DuckDB · pytest · GitHub Actions
-
-![Dashboard home page](images/dashboard.png)
-
 # A Data-Driven Framework for Price Trend Analysis, Visualization, Forecasting, and Decision Support
 
 ![Tests](https://github.com/ismatahira14-prog/price-trend-framework/actions/workflows/tests.yml/badge.svg)
+
+> **Built during my internship at the Pakistan Bureau of Statistics (PBS).**
+>
+> 🔗 **Live dashboard:** *(link coming soon)* · 📊 Monthly CPI for 13 COICOP groups (Jul 2016 – Jul 2026), a dedicated **Health (Group 06)** page covering 31 items, and crop production data
+> 🛠️ Python · pandas · Streamlit · Plotly · Highcharts · DuckDB · SQL Server · pytest · GitHub Actions
+
+| Home - inflation index & factor analysis | CPI Trends | Inflation Heatmap |
+|---|---|---|
+| ![Home page](reports/playwright/0-home.png) | ![CPI Trends](reports/playwright/1-cpi-trends.png) | ![Inflation Heatmap](reports/playwright/4-inflation-heatmap.png) |
 
 End-to-end system for analysing Pakistan commodity / consumer price movements and turning them
 into decisions. The full pipeline is:
@@ -123,7 +125,9 @@ pip install -e ".[dashboard]"     # streamlit + plotly (once)
 streamlit run dashboard/app.py    # or: .\run.cmd dashboard
 ```
 
-Opens `http://localhost:8501` with 5 pages: **Home** (inflation index & factor analysis - see below),
+Opens `http://localhost:8501` with 6 pages: **Home** (inflation index & factor analysis - see below),
+**Medical Group** (Health / CPI Group 06: 31 items across medicines, services, diagnostics, procedures and
+medical equipment - see `docs/specs/`),
 **CPI Trends** (compare price groups over time), **Crop Production** (top districts by
 area/production/yield), **Data Explorer** (filter + download `master_long`), and **Inflation
 Heatmap** (monthly change by CPI group). It reads only the DuckDB snapshot - never SQL Server - so

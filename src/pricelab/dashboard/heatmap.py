@@ -76,7 +76,9 @@ def _value_gradient_factory(max_negative, max_positive):
 _INTRO_CAPTION = "Rows are months and columns are CPI groups. Values are percentage changes."
 
 
-def render_inflation_heatmap(*, show_title: bool = True, caption_at_bottom: bool = False) -> None:
+def render_inflation_heatmap(
+    *, df: pd.DataFrame | None = None, show_title: bool = True, caption_at_bottom: bool = False
+) -> None:
     """Render the full interactive inflation heat map in place.
 
     `show_title` toggles the `st.title("Inflation heat map")` heading.
@@ -92,7 +94,7 @@ def render_inflation_heatmap(*, show_title: bool = True, caption_at_bottom: bool
     if not caption_at_bottom:
         st.caption(_INTRO_CAPTION)
 
-    df = _load()
+    df = _load() if df is None else df
     available = sorted(
         (group for group in CPI_GROUP_ORDER[1:] if group in set(df["commodity"])),
         key=lambda group: int(GROUP_CODES[group]),
@@ -153,7 +155,7 @@ def render_inflation_heatmap(*, show_title: bool = True, caption_at_bottom: bool
         display_table.style.map(_value_gradient_factory(max_negative, max_positive))
         .format(precision=2, na_rep="-")
     )
-    st.dataframe(styled, use_container_width=True, height=720)
+    st.dataframe(styled, use_container_width=True, height=500)
     st.download_button(
         "Download heat table as CSV",
         data=table.to_csv().encode("utf-8"),

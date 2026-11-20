@@ -59,6 +59,41 @@ CPI_GROUP_ICONS: dict[str, str] = {
     "Miscellaneous Goods & Services": "🛍️",
 }
 
+# Compact chart-axis labels. Official descriptions remain the data keys and
+# are retained in tooltips and downloads; these are presentation-only.
+CPI_GROUP_SHORT_NAMES: dict[str, str] = {
+    "Food & Non-Alcoholic Beverages": "Food & Beverages",
+    "Transport": "Transport",
+    "Housing, Water, Electricity, Gas & Fuels": "Housing & Utilities",
+    "Health": "Health",
+    "Education": "Education",
+    "Clothing & Footwear": "Clothing & Footwear",
+    "Communication": "Communication",
+    "Restaurants & Hotels": "Restaurants & Hotels",
+    "Recreation & Culture": "Recreation & Culture",
+    "Furnishing & Household Equipment": "Household Furnishings",
+    "Alcoholic Beverages & Tobacco": "Alcohol & Tobacco",
+    "Miscellaneous Goods & Services": "Misc. Goods & Services",
+}
+
+# Official two-digit COICOP group codes. Use this mapping whenever ordering,
+# joining, or passing a group into item-level CPI data; display order must
+# never be inferred from description text or list position.
+CPI_GROUP_CODES: dict[str, str] = {
+    "Food & Non-Alcoholic Beverages": "01",
+    "Alcoholic Beverages & Tobacco": "02",
+    "Clothing & Footwear": "03",
+    "Housing, Water, Electricity, Gas & Fuels": "04",
+    "Furnishing & Household Equipment": "05",
+    "Health": "06",
+    "Transport": "07",
+    "Communication": "08",
+    "Recreation & Culture": "09",
+    "Education": "10",
+    "Restaurants & Hotels": "11",
+    "Miscellaneous Goods & Services": "12",
+}
+
 # Sensible default selection for the CPI Trends page: General + the groups
 # most tied to the framework's WHY drivers (food, transport, housing/energy).
 CPI_DEFAULT_GROUPS: list[str] = [
