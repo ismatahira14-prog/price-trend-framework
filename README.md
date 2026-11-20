@@ -5,8 +5,6 @@
 > 
 > > *Built during my PBS internship. Not an official PBS publication.*
 
-![Dashboard home page](images/dashboard.png)
-
 # A Data-Driven Framework for Price Trend Analysis, Visualization, Forecasting, and Decision Support
 
 ![Tests](https://github.com/ismatahira14-prog/price-trend-framework/actions/workflows/tests.yml/badge.svg)
