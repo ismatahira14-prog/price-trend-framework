@@ -1,6 +1,6 @@
 > **Built during my internship at the Pakistan Bureau of Statistics (PBS).**
 >
-> 🔗 **Live dashboard:** [[pakistan-cpi-dashboard.streamlit.app](https://pakistan-cpi-dashboard.streamlit.app)] · 📊 Monthly CPI for 13 COICOP groups (Jul 2016 – Jul 2026) + crop production data
+> 🔗 **Live dashboard:** [[pakistan-cpi-dashboard.streamlit.app]([Open live dashboard](https://price-trend-framework-54xo52p4vxbutavu78998h.streamlit.app/)] · 📊 Monthly CPI for 13 COICOP groups (Jul 2016 – Jul 2026) + crop production data
 > 🛠️ Python · pandas · Streamlit · Plotly · Highcharts · DuckDB · pytest · GitHub Actions
 > 
 > > *Built during my PBS internship. Not an official PBS publication.*
