@@ -1,3 +1,10 @@
+> **Built during my internship at the Pakistan Bureau of Statistics (PBS).**
+>
+> 🔗 **Live dashboard:** [your streamlit.app link] · 📊 Monthly CPI for 13 COICOP groups (Jul 2016 – Jul 2026) + crop production data
+> 🛠️ Python · pandas · Streamlit · Plotly · Highcharts · DuckDB · pytest · GitHub Actions
+
+![Dashboard home page](images/dashboard.png)
+
 # A Data-Driven Framework for Price Trend Analysis, Visualization, Forecasting, and Decision Support
 
 ![Tests](https://github.com/ismatahira14-prog/price-trend-framework/actions/workflows/tests.yml/badge.svg)
