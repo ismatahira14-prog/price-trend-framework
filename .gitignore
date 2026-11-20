@@ -43,3 +43,15 @@ htmlcov/
 # startup by dashboard/app.py's _write_hc_main_chart_component(), not
 # hand-authored, so it doesn't belong in version control.
 dashboard/components/hc_main_chart/index.html
+
+# Secrets and backups (never upload passwords or env backups)
+.env.*
+!.env.example
+
+# Logs and temporary test output
+*.log
+reports/pytest-*/
+
+# Front-end dependencies and build output
+node_modules/
+health-cpi-dashboard/dist/

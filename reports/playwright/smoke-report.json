@@ -1,0 +1,46 @@
+{
+  "pages": [
+    {
+      "page": "Home",
+      "url": "http://127.0.0.1:8501/",
+      "title": "Pakistan Price Trend Framework",
+      "has_visible_content": true,
+      "skeletons_cleared": true,
+      "horizontal_overflow": false
+    },
+    {
+      "page": "CPI Trends",
+      "url": "http://127.0.0.1:8501/CPI_Trends",
+      "title": "Pakistan Price Trend Framework",
+      "has_visible_content": true,
+      "skeletons_cleared": true,
+      "horizontal_overflow": false
+    },
+    {
+      "page": "Crop Production",
+      "url": "http://127.0.0.1:8501/Crop_Production",
+      "title": "Pakistan Price Trend Framework",
+      "has_visible_content": true,
+      "skeletons_cleared": true,
+      "horizontal_overflow": false
+    },
+    {
+      "page": "Data Explorer",
+      "url": "http://127.0.0.1:8501/Data_Explorer",
+      "title": "Pakistan Price Trend Framework",
+      "has_visible_content": true,
+      "skeletons_cleared": true,
+      "horizontal_overflow": false
+    },
+    {
+      "page": "Inflation Heatmap",
+      "url": "http://127.0.0.1:8501/Inflation_Heatmap",
+      "title": "Pakistan Price Trend Framework",
+      "has_visible_content": true,
+      "skeletons_cleared": true,
+      "horizontal_overflow": false
+    }
+  ],
+  "console_errors": [],
+  "page_errors": []
+}

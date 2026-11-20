@@ -2,7 +2,14 @@
 # Government-statistics-agency green (see dashboard/app.py's branding note -
 # this is a generic PBS-inspired scheme, not an official PBS color asset).
 primaryColor = "#0B6E4F"
+backgroundColor = "#F4F7F5"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#14231D"
 font = "sans serif"
 
 [browser]
 gatherUsageStats = false
+
+[client]
+showSidebarNavigation = false
+toolbarMode = "minimal"
